@@ -1,0 +1,273 @@
+name: Release
+
+# Publishes a GitHub Release on v* tags with a standalone bundle attached.
+on:
+  push:
+    tags:
+      - 'v*'
+  # Rebuilds and republishes an existing tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and publish (must already exist, e.g. v0.1.0)'
+        required: true
+        type: string
+
+# Write access for creating the Release and uploading assets.
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  build:
+    name: Build standalone bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+
+    # Postgres for smoke-testing the bundle.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: origaminav
+          POSTGRES_PASSWORD: origaminav
+          POSTGRES_DB: origaminav
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U origaminav"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          # Full history for generated release notes.
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Resolve version from tag
+        id: meta
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$GITHUB_REF_NAME"
+          fi
+          case "$TAG" in
+            v*) ;;
+            *) echo "::error::Tag '$TAG' must start with 'v' (e.g. v0.1.0)."; exit 1 ;;
+          esac
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building OrigamiNav $VERSION from tag $TAG"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Re-runs the CI gate.
+      - name: Lint & typecheck
+        run: npm run check
+
+      # Builds without a database.
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+
+      - name: Verify standalone output
+        run: |
+          test -f .next/standalone/server.js \
+            || { echo "::error::.next/standalone/server.js not found — is output: 'standalone' still set in next.config.ts?"; exit 1; }
+
+      - name: Assemble bundle
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          NAME="origaminav-${VERSION}"
+          STAGE="stage/${NAME}"
+          rm -rf stage
+          mkdir -p "$STAGE"
+
+          # 1. Standalone server.
+          cp -R .next/standalone/. "$STAGE/"
+
+          # 1b. Removes copied .env* files, keeping .env.example.
+          find "$STAGE" -maxdepth 1 -name '.env*' ! -name '.env.example' -delete
+
+          # 2. Client assets (.next/static).
+          mkdir -p "$STAGE/.next/static"
+          cp -R .next/static/. "$STAGE/.next/static/"
+
+          # 3. Static public files.
+          if [ -d public ]; then
+            cp -R public "$STAGE/public"
+          fi
+
+          # 4. Migrations, read at boot from process.cwd()/drizzle.
+          cp -R drizzle "$STAGE/drizzle"
+
+          # 5. Docs and the env template.
+          cp .env.example LICENSE README.md "$STAGE/"
+          [ -f README.en.md ] && cp README.en.md "$STAGE/" || true
+
+          echo "Bundle contents:"
+          find "$STAGE" -maxdepth 1 -mindepth 1 | sort
+
+      - name: Create tarball and checksum
+        id: pack
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          NAME="origaminav-${VERSION}"
+          TARBALL="${NAME}-standalone.tar.gz"
+          tar -czf "$TARBALL" -C stage "$NAME"
+          sha256sum "$TARBALL" > "${TARBALL}.sha256"
+
+          # Fails if the archive lacks server.js or drizzle migrations.
+          tar -tzf "$TARBALL" | grep -qx "${NAME}/server.js" \
+            || { echo "::error::Bundle is missing server.js"; exit 1; }
+          tar -tzf "$TARBALL" | grep -q "^${NAME}/drizzle/.*\.sql$" \
+            || { echo "::error::Bundle is missing drizzle migrations"; exit 1; }
+
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+          ls -lh "$TARBALL" "${TARBALL}.sha256"
+
+      # Unpacks the bundle, boots it against Postgres, and checks /setup and boot migrations.
+      - name: Smoke test the bundle
+        env:
+          DATABASE_URL: postgresql://origaminav:origaminav@localhost:5432/origaminav
+        run: |
+          set -euo pipefail
+          NAME="origaminav-${{ steps.meta.outputs.version }}"
+          rm -rf smoke && mkdir smoke
+          tar -xzf "${NAME}-standalone.tar.gz" -C smoke
+          cd "smoke/${NAME}"
+
+          HOSTNAME=127.0.0.1 PORT=3000 NEXT_TELEMETRY_DISABLED=1 \
+            node server.js > server.log 2>&1 &
+          SERVER_PID=$!
+          # Kills the server process on exit.
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          code=""
+          for _ in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/setup || true)
+            if [ "$code" = "200" ]; then break; fi
+            sleep 1
+          done
+          if [ "$code" != "200" ]; then
+            echo "::error::Bundled server did not serve /setup (last status: ${code:-none})"
+            cat server.log
+            exit 1
+          fi
+          echo "Bundled server responded 200 on /setup."
+
+          # Polls until the boot migration creates the schema.
+          migrated=""
+          for _ in $(seq 1 30); do
+            if PGPASSWORD=origaminav psql -h localhost -U origaminav -d origaminav \
+                 -tAc "SELECT to_regclass('public.categories') IS NOT NULL;" | grep -q t; then
+              migrated=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "${migrated:-}" != "1" ]; then
+            echo "::error::Boot migration did not create the schema — is drizzle/ inside the bundle?"
+            cat server.log
+            exit 1
+          fi
+          echo "Boot migration created the schema."
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: |
+            *.tar.gz
+            *.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: OrigamiNav ${{ needs.build.outputs.version }}
+          files: |
+            *.tar.gz
+            *.tar.gz.sha256
+          # Appends generated release notes below the header.
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(needs.build.outputs.version, '-') }}
+          body: |
+            ## OrigamiNav ${{ needs.build.outputs.version }}
+
+            自托管书签导航站。附件中的
+            `origaminav-${{ needs.build.outputs.version }}-standalone.tar.gz`
+            是一个开箱即用的生产构建 —— 只需要 Node 20.9+ 和一条 PostgreSQL 连接串。
+            GitHub 会自动附加 `Source code (zip / tar.gz)` 源码包（需先 `npm ci && npm run build`）。
+
+            ```bash
+            tar -xzf origaminav-${{ needs.build.outputs.version }}-standalone.tar.gz
+            cd origaminav-${{ needs.build.outputs.version }}
+            cp .env.example .env      # 编辑并填入 DATABASE_URL
+            node server.js            # 首次启动自动建表 / tables are created on first boot
+            ```
+
+            可用附件的 `.sha256` 文件校验下载完整性：
+
+            ```bash
+            sha256sum -c origaminav-${{ needs.build.outputs.version }}-standalone.tar.gz.sha256
+            ```
+
+            完整的部署指南见
+            [README.md](https://github.com/${{ github.repository }}/blob/${{ needs.build.outputs.tag }}/README.md)。
+
+            ---
+
+            Self-hosted bookmark navigation. The attached
+            `origaminav-${{ needs.build.outputs.version }}-standalone.tar.gz`
+            is a self-contained production build — Node 20.9+ and a Postgres
+            connection string are the only requirements. GitHub also attaches
+            `Source code (zip / tar.gz)` automatically (run `npm ci && npm run build` first).
+            See the linked README for the full self-hosting guide.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

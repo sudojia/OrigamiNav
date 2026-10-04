@@ -1,0 +1,25 @@
+version: 2
+updates:
+  # 应用依赖：每周检查一次。
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+    groups:
+      # devDependencies 的 minor/patch 升级归组为一条 PR；major 保持独立。
+      dev-dependencies:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  # Actions 自身的版本更新（@v4 -> @v5 等）。
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - ci-cd

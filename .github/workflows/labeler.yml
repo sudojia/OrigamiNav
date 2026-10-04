@@ -1,0 +1,21 @@
+name: PR Labeler
+
+# 按改动路径给 PR 自动打标签。标签清单见 .github/labeler.yml。
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    name: Auto-label by changed files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply labels
+        uses: actions/labeler@v5
+        with:
+          # 移除不再匹配的标签，保持 PR 标签与当前改动一致。
+          sync-labels: true

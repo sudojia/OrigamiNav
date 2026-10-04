@@ -1,0 +1,113 @@
+name: CI
+
+# Runs on pushes to main/master and on pull requests.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+# Cancels the previous run for the same branch/PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Read-only repository access.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint · Typecheck · Build · Migrations (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    # Tests Node 20 (the floor) and 22.
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: origaminav
+          POSTGRES_PASSWORD: origaminav
+          POSTGRES_DB: origaminav
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U origaminav"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://origaminav:origaminav@localhost:5432/origaminav
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Apply migrations
+        run: npx drizzle-kit migrate
+
+      - name: Verify migration produced the schema
+        run: |
+          for table in categories bookmarks tags bookmarks_tags admins settings secrets site_assets; do
+            PGPASSWORD=origaminav psql -h localhost -U origaminav -d origaminav \
+              -c "SELECT to_regclass('public.$table') IS NOT NULL;" | grep -q t \
+              || { echo "missing table: $table"; exit 1; }
+          done
+          echo "All tables present."
+
+      # Builds with a live database and with an unreachable one.
+      - name: Build (with database)
+        run: npm run build
+
+      - name: Build (without database)
+        run: npm run build
+        env:
+          DATABASE_URL: postgresql://origaminav:origaminav@localhost:1/unreachable
+
+      # Fails if output: 'standalone' was dropped from next.config.ts.
+      - name: Verify standalone output exists
+        run: |
+          test -f .next/standalone/server.js || { echo "::error::.next/standalone/server.js missing — is output: 'standalone' still set in next.config.ts?"; exit 1; }
+
+  lockfile:
+    name: Clean install (no lockfile drift)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Proves the committed lockfile matches package.json.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for lockfile drift
+        run: git diff --exit-code -- package-lock.json

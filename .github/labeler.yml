@@ -1,0 +1,31 @@
+# actions/labeler@v5 的标签规则：命中任意一条即打上该标签。
+
+frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/**'
+          - '!src/db/**'
+
+database:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'src/db/**'
+          - 'drizzle/**'
+          - 'drizzle.config.ts'
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - 'docs/**'
+
+ci-cd:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'package.json'
+          - 'package-lock.json'

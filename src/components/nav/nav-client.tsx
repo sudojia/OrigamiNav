@@ -1,0 +1,653 @@
+'use client';
+
+import { Github, Plus, Search, Settings2, XCircle } from 'lucide-react';
+import Link from 'next/link';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { deleteBookmarkAction } from '@/actions/bookmark';
+import { BookmarkFormDialog } from '@/components/admin/bookmark-form-dialog';
+import { BookmarkCard } from '@/components/nav/bookmark-card';
+import { CommandPalette } from '@/components/nav/command-palette';
+import { NavChipBar, NavSidebar } from '@/components/nav/nav-sidebar';
+import { BrandMark } from '@/components/nav/site-mark';
+import { TagFilterBar } from '@/components/nav/tag-filter-bar';
+import { ModeToggle } from '@/components/theme/theme-controls';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { filterNav, tokenize } from '@/lib/filter';
+import { PROJECT_START_YEAR, PROJECT_URL } from '@/lib/project-links';
+import { cn } from '@/lib/utils';
+import type { NavBookmark, NavData, SiteSettings } from '@/types/nav';
+
+/** "2026" in the start year, then "2026 - 2027" once the year rolls over. */
+function copyrightYearLabel(currentYear: number): string {
+  return currentYear > PROJECT_START_YEAR
+    ? `${PROJECT_START_YEAR} - ${currentYear}`
+    : String(PROJECT_START_YEAR);
+}
+
+/** Owns all client-side state for the public page; re-fetches /api/nav after hydration. */
+export function NavClient({
+  initialNav,
+  settings,
+}: {
+  initialNav: NavData;
+  settings: SiteSettings;
+}) {
+  const [nav, setNav] = useState<NavData>(initialNav);
+  const [query, setQuery] = useState('');
+  const [activeTags, setActiveTags] = useState<string[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [deleting, setDeleting] = useState<NavBookmark | null>(null);
+  const [editing, setEditing] = useState<NavBookmark | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  const searchRef = useRef<HTMLInputElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const sectionRefs = useRef(new Map<string, HTMLElement>());
+
+  const filtered = useMemo(
+    () => filterNav(nav, query, activeTags),
+    [nav, query, activeTags],
+  );
+  const terms = useMemo(() => tokenize(query), [query]);
+
+  const counts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const category of filtered.categories) {
+      map.set(category.id, category.bookmarks.length);
+    }
+    return map;
+  }, [filtered.categories]);
+
+  /** Usage count per tag over the unfiltered payload. */
+  const tagCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const category of nav.categories) {
+      for (const bookmark of category.bookmarks) {
+        for (const tag of bookmark.tags) {
+          map.set(tag.id, (map.get(tag.id) ?? 0) + 1);
+        }
+      }
+    }
+    return map;
+  }, [nav]);
+
+  // ── Freshness: replaces the cached snapshot with current data ─────────────
+  const refreshNav = useCallback(async () => {
+    try {
+      const response = await fetch('/api/nav', { cache: 'no-store' });
+      if (!response.ok) return;
+      const fresh = (await response.json()) as NavData;
+      // Ignores a malformed payload.
+      if (Array.isArray(fresh.categories)) setNav(fresh);
+    } catch {
+      // Offline or a cold database: keeps the server-rendered snapshot.
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    // Initial fetch; updates state only from the async callback.
+    function refresh() {
+      fetch('/api/nav', { cache: 'no-store' })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((fresh) => {
+          if (!cancelled && fresh && Array.isArray((fresh as NavData).categories)) {
+            setNav(fresh as NavData);
+          }
+        })
+        .catch(() => {
+          // Offline or a cold database: keeps the server-rendered snapshot.
+        });
+    }
+
+    refresh();
+
+    // Refreshes when the tab becomes visible again.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
+
+  // ── Header height as a CSS variable ───────────────────────────────────────
+  // Measures the sticky header and writes --header-h on resize.
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const apply = () => {
+      document.documentElement.style.setProperty(
+        '--header-h',
+        `${el.offsetHeight}px`,
+      );
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // ── Admin state, fetched from /api/me ─────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/me', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.isAdmin === true) setIsAdmin(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const scrollToCategory = useCallback((slug: string) => {
+    const el = sectionRefs.current.get(slug);
+    if (!el) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    setActiveId(el.dataset.categoryId ?? null);
+  }, []);
+
+  // ── Scroll-spy ─────────────────────────────────────────────────────────────
+  // Tracks the active section from scroll position.
+  useEffect(() => {
+    function update() {
+      // Active section: the last one whose top has scrolled past the reader
+      // line, read from scroll-padding-block-start.
+      const parkedOffset =
+        Number.parseFloat(
+          getComputedStyle(document.documentElement).scrollPaddingBlockStart,
+        ) || 0;
+      const readerLine = Math.max(window.innerHeight * 0.25, parkedOffset + 8);
+      let current: string | null = null;
+      for (const category of filtered.categories) {
+        const el = sectionRefs.current.get(category.slug);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top <= readerLine) {
+          current = category.id;
+        } else {
+          break;
+        }
+      }
+      // At the bottom of a scrollable page, the last section is active.
+      const scrollable =
+        document.documentElement.scrollHeight - window.innerHeight > 2;
+      const atBottom =
+        scrollable &&
+        window.innerHeight + window.scrollY >=
+          document.documentElement.scrollHeight - 2;
+      if (atBottom) {
+        const last = filtered.categories[filtered.categories.length - 1];
+        const lastEl = last ? sectionRefs.current.get(last.slug) : null;
+        if (last && lastEl) current = last.id;
+      }
+      // No section is active above the first section.
+      setActiveId(current);
+      setScrolled(window.scrollY > 8);
+    }
+
+    // Defers the first measurement to a frame.
+    const frame = requestAnimationFrame(update);
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [filtered.categories]);
+
+  // ── Keyboard: "/" focuses search, Cmd/Ctrl+K opens the palette ────────────
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const typing =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target?.isContentEditable === true;
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+        return;
+      }
+
+      if (event.key === '/' && !typing) {
+        event.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+
+      if (event.key === 'Escape' && !typing) {
+        setQuery('');
+        setActiveTags([]);
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const registerSection = useCallback(
+    (slug: string) => (el: HTMLElement | null) => {
+      if (el) sectionRefs.current.set(slug, el);
+      else sectionRefs.current.delete(slug);
+    },
+    [],
+  );
+
+  const toggleTag = (id: string) =>
+    setActiveTags((prev) =>
+      prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
+    );
+
+  // ── Admin context-menu intents (cards only wire these when isAdmin) ───────
+  // Opens the edit dialog; `refreshNav` reconciles after save.
+  const editBookmark = useCallback((bookmark: NavBookmark) => {
+    setEditing(bookmark);
+  }, []);
+
+  const closeEditing = useCallback(() => {
+    setEditing(null);
+    void refreshNav();
+  }, [refreshNav]);
+
+  // Quick-add from the public page: the same dialog in create mode.
+  const openCreate = useCallback(() => setCreating(true), []);
+
+  const closeCreate = useCallback(() => {
+    setCreating(false);
+    void refreshNav();
+  }, [refreshNav]);
+
+  /** Active category; quick-add defaults to it, falling back to the first. */
+  const activeCategory = useMemo(
+    () => nav.categories.find((category) => category.id === activeId) ?? null,
+    [nav.categories, activeId],
+  );
+  const createCategoryId = activeCategory?.id ?? nav.categories[0]?.id ?? '';
+
+  /** Finds the category that owns a bookmark. */
+  const editingCategoryId = useMemo(() => {
+    if (!editing) return '';
+    for (const category of nav.categories) {
+      if (category.bookmarks.some((b) => b.id === editing.id)) {
+        return category.id;
+      }
+    }
+    return nav.categories[0]?.id ?? '';
+  }, [editing, nav.categories]);
+
+  const confirmDelete = useCallback(async () => {
+    if (!deleting) return;
+    const result = await deleteBookmarkAction(deleting.id);
+    if (result.ok) {
+      toast.success(result.message);
+      const removedId = deleting.id;
+      setDeleting(null);
+      // Drops the card, then reconciles with the server.
+      setNav((prev) => ({
+        ...prev,
+        categories: prev.categories.map((category) => ({
+          ...category,
+          bookmarks: category.bookmarks.filter((b) => b.id !== removedId),
+        })),
+      }));
+      void refreshNav();
+    } else {
+      toast.error(result.message);
+    }
+  }, [deleting, refreshNav]);
+
+  const hasFilters = query.trim().length > 0 || activeTags.length > 0;
+  const searching = hasFilters;
+
+  return (
+    <div className="min-h-dvh bg-background">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <header
+        ref={headerRef}
+        className={cn(
+          'sticky top-0 z-30 border-b border-border backdrop-blur transition-[background-color,box-shadow] duration-200',
+          scrolled
+            ? 'bg-background/95 shadow-card'
+            : 'bg-background/85 supports-[backdrop-filter]:bg-background/70',
+        )}
+      >
+        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <BrandMark logoUrl={settings.logoUrl} />
+              <div className="min-w-0">
+                <h1 className="truncate font-display text-base leading-tight font-semibold">
+                  {settings.siteName}
+                </h1>
+                {settings.tagline ? (
+                  <p className="truncate text-xs text-muted-foreground">
+                    {settings.tagline}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                asChild
+                aria-label="GitHub 仓库"
+                title="GitHub 仓库"
+              >
+                <a href={PROJECT_URL} target="_blank" rel="noopener noreferrer">
+                  <Github className="size-4" />
+                </a>
+              </Button>
+              <ModeToggle skin={settings.defaultTheme} />
+              <Button
+                variant="ghost"
+                size="icon"
+                asChild
+                aria-label="后台管理"
+                title="后台管理"
+              >
+                <Link href="/admin">
+                  <Settings2 className="size-4" />
+                </Link>
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="group relative flex-1">
+              <Search
+                aria-hidden
+                className="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary"
+              />
+              <Input
+                ref={searchRef}
+                type="text"
+                inputMode="search"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索书签、分类或标签，支持拼音首字母"
+                aria-label="搜索书签"
+                className="h-11 rounded-full border-border/70 bg-muted/40 pr-24 pl-10 shadow-none transition-colors hover:border-border focus-visible:bg-background"
+              />
+              <div className="absolute top-1/2 right-2 flex -translate-y-1/2 items-center gap-1">
+                {query ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuery('');
+                      searchRef.current?.focus();
+                    }}
+                    aria-label="清除搜索"
+                    title="清除搜索"
+                    className="rounded-full p-1 text-muted-foreground/70 transition-all hover:bg-muted hover:text-foreground active:scale-90"
+                  >
+                    <XCircle className="size-4 fill-muted/60" />
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setPaletteOpen(true)}
+                  aria-label="打开命令面板（Ctrl+K）"
+                  title="命令面板（Ctrl+K）"
+                  className="hidden items-center gap-0.5 rounded-md border border-border bg-background/80 px-1.5 py-0.5 text-[0.625rem] font-medium text-muted-foreground shadow-xs transition-colors hover:border-primary/40 hover:text-primary sm:inline-flex"
+                >
+                  <span className="font-sans">⌘</span>K
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <TagFilterBar
+            tags={nav.tags}
+            counts={tagCounts}
+            active={activeTags}
+            onToggle={toggleTag}
+            onClear={() => setActiveTags([])}
+          />
+        </div>
+      </header>
+
+      {/* ── Body ───────────────────────────────────────────────────────────── */}
+      <div className="mx-auto flex max-w-7xl gap-8 px-4 py-8 sm:px-6">
+        <aside className="hidden w-48 shrink-0 lg:block">
+          <NavSidebar
+            categories={filtered.categories}
+            activeId={activeId}
+            onSelect={scrollToCategory}
+            counts={counts}
+          />
+        </aside>
+
+        <main className="min-w-0 flex-1">
+          <NavChipBar
+            categories={filtered.categories}
+            activeId={activeId}
+            onSelect={scrollToCategory}
+          />
+
+          {!nav.available ? (
+            <Notice
+              title="数据库未连接"
+              body="无法读取书签数据。请检查 DATABASE_URL 是否正确，以及数据库是否可达。"
+            />
+          ) : filtered.categories.length === 0 && nav.categories.length === 0 ? (
+            <Notice
+              title="还没有任何书签"
+              body="登录后台添加分类和书签。"
+            />
+          ) : filtered.categories.length === 0 ? (
+            <Notice
+              title="没有匹配的结果"
+              body={`没有书签匹配当前的搜索和标签条件。${hasFilters ? '按 Esc 可清除筛选。' : ''}`}
+              action={
+                hasFilters ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setQuery('');
+                      setActiveTags([]);
+                    }}
+                  >
+                    清除筛选
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="space-y-10">
+              {searching ? (
+                <p className="text-xs text-muted-foreground" role="status">
+                  找到 {filtered.matched} / {filtered.total} 个书签
+                  {activeTags.length > 0 ? `，已按 ${activeTags.length} 个标签筛选` : ''}
+                </p>
+              ) : null}
+
+              {filtered.categories.map((category) => (
+                <section
+                  key={category.id}
+                  id={category.slug}
+                  ref={registerSection(category.slug)}
+                  data-category-id={category.id}
+                >
+                  <div className="mb-3 flex items-baseline gap-2">
+                    <h2 className="font-display text-lg font-semibold tracking-tight">
+                      {category.name}
+                    </h2>
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {counts.get(category.id) ?? category.bookmarks.length}
+                    </span>
+                  </div>
+                  {category.description ? (
+                    <p className="mb-4 text-sm text-muted-foreground">
+                      {category.description}
+                    </p>
+                  ) : null}
+
+                  <div
+                    className="bookmark-grid"
+                    style={
+                      {
+                        '--card-columns': settings.cardColumns,
+                      } as React.CSSProperties
+                    }
+                  >
+                    {category.bookmarks.map((bookmark) => (
+                      <BookmarkCard
+                        key={bookmark.id}
+                        bookmark={bookmark}
+                        isAdmin={isAdmin}
+                        onEdit={editBookmark}
+                        onDelete={setDeleting}
+                        highlight={terms}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
+        </main>
+      </div>
+
+      <footer className="border-t border-border py-8">
+        <div className="mx-auto max-w-7xl px-4 text-center text-xs text-muted-foreground sm:px-6">
+          © {copyrightYearLabel(new Date().getFullYear())} Powered by{' '}
+          <a
+            href={PROJECT_URL}
+            className="underline-offset-2 transition-colors hover:text-foreground hover:underline"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            OrigamiNav
+          </a>
+          .
+        </div>
+      </footer>
+
+      <CommandPalette
+        nav={nav}
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        onJumpToCategory={scrollToCategory}
+      />
+
+      {/* In-place edit dialog; rendered only when editing. */}
+      {editing ? (
+        <BookmarkFormDialog
+          categories={nav.categories.map((category) => ({
+            id: category.id,
+            name: category.name,
+          }))}
+          categoryId={editingCategoryId}
+          bookmark={editing}
+          aiEnabled={settings.aiEnabled}
+          onClose={closeEditing}
+        />
+      ) : null}
+
+      {/* Quick-add button for admins; hidden when there is no category. */}
+      {isAdmin && nav.categories.length > 0 ? (
+        <button
+          type="button"
+          onClick={openCreate}
+          aria-label="快速新增书签"
+          title={
+            activeCategory
+              ? `在「${activeCategory.name}」下新增书签`
+              : '快速新增书签'
+          }
+          className="fixed right-4 bottom-4 z-40 inline-flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-raised transition-transform duration-200 hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:scale-95 sm:right-6 sm:bottom-6"
+        >
+          <Plus className="size-6" aria-hidden />
+        </button>
+      ) : null}
+
+      {creating ? (
+        <BookmarkFormDialog
+          categories={nav.categories.map((category) => ({
+            id: category.id,
+            name: category.name,
+          }))}
+          categoryId={createCategoryId}
+          bookmark={null}
+          aiEnabled={settings.aiEnabled}
+          onClose={closeCreate}
+        />
+      ) : null}
+
+      {/* Delete confirmation. */}
+      <AlertDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除书签「{deleting?.title}」？</AlertDialogTitle>
+            <AlertDialogDescription>
+              标签关联会一并移除，此操作不可撤销。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmDelete();
+              }}
+            >
+              删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+function Notice({
+  title,
+  body,
+  action,
+}: {
+  title: string;
+  body: string;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-card border border-dashed border-border bg-card/50 px-6 py-14 text-center">
+      <h2 className="font-display text-base font-semibold">{title}</h2>
+      <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">{body}</p>
+      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
+    </div>
+  );
+}
+
