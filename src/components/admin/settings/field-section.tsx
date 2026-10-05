@@ -8,12 +8,15 @@ export function FieldSection({
   title,
   description,
   divided,
+  action,
   children,
 }: {
   Icon: typeof Type;
   title: string;
   description?: string;
   divided?: boolean;
+  /** Section-level control rendered opposite the title. */
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -24,7 +27,7 @@ export function FieldSection({
         <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
           <Icon className="size-3.5" aria-hidden />
         </span>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <h2 className="text-sm font-medium">{title}</h2>
           {description ? (
             <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
@@ -32,6 +35,7 @@ export function FieldSection({
             </p>
           ) : null}
         </div>
+        {action ? <div className="shrink-0 self-start">{action}</div> : null}
       </header>
       {children}
     </section>

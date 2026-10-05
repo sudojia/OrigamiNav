@@ -4,7 +4,6 @@ import {
   Bot,
   Check,
   ChevronsUpDown,
-  Link as LinkIcon,
   Loader2,
   Plus,
   RefreshCw,
@@ -12,7 +11,6 @@ import {
   Tags,
 } from 'lucide-react';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Command,
@@ -225,13 +223,16 @@ export function AiTab({
           </SettingsField>
         </FieldSection>
 
-        <FieldSection divided Icon={Sparkles} title="模型">
-          <div className="flex flex-wrap items-center gap-2">
+        <FieldSection
+          divided
+          Icon={Sparkles}
+          title="模型"
+          description="从服务端获取可用模型列表，也可以直接输入模型名。"
+          action={
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="shrink-0"
               disabled={loadingModels}
               onClick={onFetchModels}
             >
@@ -240,26 +241,50 @@ export function AiTab({
               ) : (
                 <RefreshCw className="size-3.5" aria-hidden />
               )}
-              获取模型
+              {loadingModels ? '获取中…' : '获取模型'}
             </Button>
-
+          }
+        >
+          <div className="space-y-2">
             <Popover open={modelOpen} onOpenChange={onModelOpenChange}>
               <PopoverTrigger asChild>
-                <Button
+                <button
                   type="button"
-                  variant="outline"
                   role="combobox"
                   aria-expanded={modelOpen}
+                  aria-controls={
+                    modelOpen ? 'settings-ai-model-list' : undefined
+                  }
+                  aria-label="选择模型"
                   className={cn(
-                    'min-w-0 flex-1 basis-56 justify-between font-normal',
-                    !model && 'text-muted-foreground',
+                    'flex w-full items-center gap-3 rounded-lg border border-border/70 bg-card px-3 py-2.5 text-left outline-none transition-[color,box-shadow,border-color] hover:border-primary/40 hover:bg-accent/40 focus-visible:border-ring/60 focus-visible:ring-2 focus-visible:ring-ring/25',
+                    modelOpen && 'border-primary/45 ring-1 ring-primary/25',
                   )}
                 >
-                  <span className="truncate">{model || '选择模型'}</span>
-                  <ChevronsUpDown className="size-4 opacity-50" aria-hidden />
-                </Button>
+                  <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <Sparkles className="size-3.5" aria-hidden />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[0.6875rem] leading-none text-muted-foreground">
+                      当前模型
+                    </span>
+                    <span
+                      className={cn(
+                        'mt-1 block truncate font-mono text-sm',
+                        !model && 'text-muted-foreground',
+                      )}
+                    >
+                      {model || '未选择'}
+                    </span>
+                  </span>
+                  <ChevronsUpDown
+                    className="size-4 shrink-0 text-muted-foreground"
+                    aria-hidden
+                  />
+                </button>
               </PopoverTrigger>
               <PopoverContent
+                id="settings-ai-model-list"
                 align="start"
                 className="w-(--radix-popover-trigger-width) p-0"
               >
@@ -308,33 +333,16 @@ export function AiTab({
                 </Command>
               </PopoverContent>
             </Popover>
-          </div>
 
-          {models.length > 0 ? (
-            <Badge className="gap-1.5 border-emerald-500/25 bg-emerald-500/10 py-1 pl-2.5 pr-3 font-normal text-emerald-700 dark:text-emerald-400">
-              <Check aria-hidden />
-              已获取 {models.length} 个模型
-            </Badge>
-          ) : model ? (
-            <Badge
-              variant="outline"
-              className="max-w-full gap-1.5 border-primary/20 bg-primary/5 py-1 pl-2.5 pr-3 font-normal"
-            >
-              <Sparkles className="text-primary" aria-hidden />
-              <span className="text-muted-foreground">当前</span>
-              <span className="min-w-0 truncate font-mono">{model}</span>
-            </Badge>
-          ) : null}
-
-          <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
-            <p className="flex items-center gap-1.5 text-xs font-medium">
-              <LinkIcon className="size-3.5 text-primary/70" aria-hidden />
-              AI 标签
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              配置完成后，书签表单里粘贴链接会自动抓取标题、描述与图标；保存后
-              AI 会在后台自动根据书签内容补全标签。
-            </p>
+            {models.length > 0 ? (
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Check
+                  className="size-3.5 text-emerald-600 dark:text-emerald-400"
+                  aria-hidden
+                />
+                已获取 {models.length} 个模型
+              </p>
+            ) : null}
           </div>
         </FieldSection>
 

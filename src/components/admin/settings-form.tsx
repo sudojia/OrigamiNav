@@ -304,7 +304,7 @@ export function SettingsForm({
       hue: 'bg-chart-3/10 text-chart-3',
       title: 'AI',
       description:
-        '配置 OpenAI 兼容或 Anthropic Messages 协议的模型服务，用于自动填充书签信息与标签。',
+        '配置 OpenAI 兼容或 Anthropic Messages 协议的模型服务，用来给书签自动打标签。',
     },
     security: {
       Icon: KeyRound,
