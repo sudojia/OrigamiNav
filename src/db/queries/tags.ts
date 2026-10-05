@@ -1,0 +1,185 @@
+import 'server-only';
+
+import { and, eq, inArray, ne } from 'drizzle-orm';
+
+import { newId, nowIso } from '@/lib/ids';
+import { slugifyUnique } from '@/lib/pinyin';
+
+import { db, safeQuery } from '../client';
+import { bookmarksTags, tags, type Tag } from '../schema';
+import { rebuildSearchIndexesFor } from './bookmarks';
+
+export async function tagNameTaken(name: string): Promise<boolean> {
+  return safeQuery(
+    'tagNameTaken',
+    async (database) => {
+      const rows = await database
+        .select({ id: tags.id })
+        .from(tags)
+        .where(eq(tags.name, name))
+        .limit(1);
+      return rows.length > 0;
+    },
+    false,
+  );
+}
+
+/** True when a tag slug is already taken. */
+export async function tagSlugTaken(
+  slug: string,
+  excludeId?: string,
+): Promise<boolean> {
+  return safeQuery(
+    'tagSlugTaken',
+    async (database) => {
+      const condition = excludeId
+        ? and(eq(tags.slug, slug), ne(tags.id, excludeId))
+        : eq(tags.slug, slug);
+      const rows = await database
+        .select({ id: tags.id })
+        .from(tags)
+        .where(condition)
+        .limit(1);
+      return rows.length > 0;
+    },
+    false,
+  );
+}
+
+/** Finds the first free `base`, `base-2`, `base-3`, … tag slug. */
+export async function ensureUniqueTagSlug(
+  base: string,
+  excludeId?: string,
+): Promise<string> {
+  if (!(await tagSlugTaken(base, excludeId))) return base;
+  for (let n = 2; n < 100; n += 1) {
+    const candidate = `${base}-${n}`;
+    if (!(await tagSlugTaken(candidate, excludeId))) return candidate;
+  }
+  // Fall back to an id-suffixed slug.
+  return `${base}-${newId().slice(-6)}`;
+}
+
+export async function createTag(name: string): Promise<Tag> {
+  const id = newId();
+  const rows = await db
+    .insert(tags)
+    .values({
+      id,
+      name,
+      // Pinyin slug, disambiguated when another name slugs identically.
+      slug: await ensureUniqueTagSlug(slugifyUnique(name, id)),
+      createdAt: nowIso(),
+    })
+    .returning();
+  const created = rows[0];
+  if (!created) throw new Error('Failed to create tag');
+  return created;
+}
+
+export async function renameTag(
+  id: string,
+  name: string,
+): Promise<Tag | null> {
+  // Collect affected bookmarks before the rename for index rebuild.
+  const affected = await db
+    .select({ bookmarkId: bookmarksTags.bookmarkId })
+    .from(bookmarksTags)
+    .where(eq(bookmarksTags.tagId, id));
+
+  const rows = await db
+    .update(tags)
+    .set({ name, slug: await ensureUniqueTagSlug(slugifyUnique(name, id), id) })
+    .where(eq(tags.id, id))
+    .returning();
+  const updated = rows[0];
+  if (!updated) return null;
+
+  await rebuildSearchIndexesFor(affected.map((a) => a.bookmarkId));
+  return updated;
+}
+
+/** Deletes a tag and rebuilds the search indexes of affected bookmarks. */
+export async function deleteTag(id: string): Promise<void> {
+  const affected = await db
+    .select({ bookmarkId: bookmarksTags.bookmarkId })
+    .from(bookmarksTags)
+    .where(eq(bookmarksTags.tagId, id));
+
+  await db.delete(tags).where(eq(tags.id, id));
+  await rebuildSearchIndexesFor(affected.map((a) => a.bookmarkId));
+}
+
+/** Attaches tags (creating missing ones) to an existing bookmark, then rebuilds its search index. */
+export async function attachTagsToBookmark(
+  bookmarkId: string,
+  names: string[],
+): Promise<void> {
+  const tagIds = await resolveTagIds(names);
+  if (tagIds.length === 0) return;
+  await db
+    .insert(bookmarksTags)
+    .values(tagIds.map((tagId) => ({ bookmarkId, tagId })))
+    .onConflictDoNothing();
+  await rebuildSearchIndexesFor([bookmarkId]);
+}
+
+/** Maps tag names to ids, creating missing tags. */
+export async function resolveTagIds(names: string[]): Promise<string[]> {
+  const unique = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+  if (!unique.length) return [];
+
+  return db.transaction(async (tx) => {
+    const existing = await tx
+      .select({ id: tags.id, name: tags.name })
+      .from(tags)
+      .where(inArray(tags.name, unique));
+    const idByName = new Map(existing.map((r) => [r.name, r.id]));
+
+    for (const name of unique) {
+      if (idByName.has(name)) continue;
+      const id = newId();
+      const inserted = await tx
+        .insert(tags)
+        .values({ id, name, slug: slugifyUnique(name, id), createdAt: nowIso() })
+        .onConflictDoNothing({ target: tags.slug })
+        .returning({ id: tags.id });
+      const row = inserted[0];
+      if (row) {
+        idByName.set(name, row.id);
+        continue;
+      }
+      // Slug collision; retry once with an id-suffixed slug.
+      const retry = await tx
+        .insert(tags)
+        .values({
+          id,
+          name,
+          slug: `${slugifyUnique(name, id)}-${id.slice(-6)}`,
+          createdAt: nowIso(),
+        })
+        .onConflictDoNothing({ target: tags.slug })
+        .returning({ id: tags.id });
+      const retryRow = retry[0];
+      if (retryRow) idByName.set(name, retryRow.id);
+    }
+
+    return unique
+      .map((name) => idByName.get(name))
+      .filter((id): id is string => id !== undefined);
+  });
+}
+
+/** Name → id map for a batch, creating missing tags. */
+export async function mapTagNamesToIds(names: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+  if (!unique.length) return new Map();
+
+  await resolveTagIds(unique);
+
+  const rows = await db
+    .select({ id: tags.id, name: tags.name })
+    .from(tags)
+    .where(inArray(tags.name, unique));
+  return new Map(rows.map((row) => [row.name, row.id]));
+}
