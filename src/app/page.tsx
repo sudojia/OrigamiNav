@@ -17,6 +17,9 @@ export default async function HomePage() {
     return <BootstrapRedirect to="/setup" />;
   }
 
+  // Public payload only: the page stays prerendered and CDN-cacheable. A
+  // signed-in admin pulls the hidden rows client-side right after the session
+  // check (see NavClient), so no per-user data ever enters the shared cache.
   const nav = await getNavData();
 
   return <NavShell nav={nav} settings={settings} />;

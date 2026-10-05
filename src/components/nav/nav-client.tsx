@@ -138,13 +138,18 @@ export function NavClient({
     return () => observer.disconnect();
   }, []);
 
-  // ── Admin state, fetched from /api/me ─────────────────────────────────────
+  // ── Admin state, then the admin's hidden rows ─────────────────────────────
+  // The HTML is shared and public-only, so a signed-in admin pulls the full
+  // payload (hidden rows included) in this single response instead of waiting
+  // for the next tab re-activation. Anonymous callers only get the flag.
   useEffect(() => {
     let cancelled = false;
     fetch('/api/me', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (!cancelled && data?.isAdmin === true) setIsAdmin(true);
+        if (cancelled || data?.isAdmin !== true) return;
+        setIsAdmin(true);
+        if (Array.isArray(data.nav?.categories)) setNav(data.nav as NavData);
       })
       .catch(() => {});
     return () => {
