@@ -154,6 +154,7 @@ export function App() {
         (category) => category.id === categoryId,
       )?.name;
       setSavedTo(name ?? null);
+      setTimeout(() => window.close(), 500);
     } catch (error) {
       if (error instanceof ApiError && error.failure.kind === 'duplicate') {
         setDuplicate(error.failure.existing);
