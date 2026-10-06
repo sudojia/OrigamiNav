@@ -5,6 +5,7 @@ import {
   Check,
   KeyRound,
   Palette as PaletteIcon,
+  Puzzle,
   Settings2,
   Type,
 } from 'lucide-react';
@@ -41,12 +42,13 @@ import {
   LayoutRail,
 } from './settings/appearance-tab';
 import { AiTab, AiRail, type AiStatus } from './settings/ai-tab';
+import { ExtensionRail, ExtensionTab } from './settings/extension-tab';
 import { GeneralTab, IdentityPreview } from './settings/general-tab';
 import { SecurityTab, SecurityRail } from './settings/security-tab';
 
 export type { AiStatus };
 
-type TabId = 'general' | 'appearance' | 'ai' | 'security';
+type TabId = 'general' | 'appearance' | 'ai' | 'security' | 'extension';
 
 const TABS: Array<{
   id: TabId;
@@ -83,12 +85,20 @@ const TABS: Array<{
     hue: 'bg-chart-4/10 text-chart-4',
     Icon: KeyRound,
   },
+  {
+    id: 'extension',
+    label: '浏览器扩展',
+    hint: '快速收藏 API 令牌',
+    hue: 'bg-chart-2/10 text-chart-2',
+    Icon: Puzzle,
+  },
 ];
 
 /** Site settings as a tabbed form with a live preview rail. */
 export function SettingsForm({
   settings,
   aiStatus,
+  extToken,
 }: {
   settings: {
     siteName: string;
@@ -107,6 +117,7 @@ export function SettingsForm({
     loginRateLimit: number;
   };
   aiStatus: AiStatus;
+  extToken: string | null;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -312,6 +323,12 @@ export function SettingsForm({
       title: '安全',
       description: '管理员密码、登录限流与分类删除策略。',
     },
+    extension: {
+      Icon: Puzzle,
+      hue: 'bg-chart-2/10 text-chart-2',
+      title: '浏览器扩展',
+      description: '为浏览器扩展生成访问令牌，在任意网页一键收藏。',
+    },
   };
   const head = HEADS[activeTab];
 
@@ -320,14 +337,14 @@ export function SettingsForm({
       <PageHeader
         Icon={Settings2}
         title="站点设置"
-        description="站点信息、外观、AI 服务与安全策略的集中管理。"
+        description="站点信息、外观、AI 服务、安全策略与浏览器扩展的集中管理。"
       />
 
       {/* Tab list using the shared tile classes. */}
       <div
         role="tablist"
         aria-label="站点设置分类"
-        className="grid grid-cols-2 gap-2.5 sm:grid-cols-4"
+        className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5"
       >
         {TABS.map(({ id, label, hint, hue, Icon }) => {
           const active = activeTab === id;
@@ -470,6 +487,11 @@ export function SettingsForm({
               onLoginRateLimitChange={setLoginRateLimit}
             />
 
+            <ExtensionTab
+              active={activeTab === 'extension'}
+              initialToken={extToken}
+            />
+
             {/* ── Footer action bar ──────────────────────────────────── */}
             <div className="flex items-center justify-end border-t border-border/60 bg-muted/30 px-5 py-3.5">
               <SubmitButton className="shrink-0">
@@ -499,6 +521,8 @@ export function SettingsForm({
               />
             ) : activeTab === 'appearance' ? (
               <LayoutRail columns={Number(cardColumns)} />
+            ) : activeTab === 'extension' ? (
+              <ExtensionRail token={extToken} />
             ) : (
               <SecurityRail
                 deleteMode={categoryDeleteMode}

@@ -214,6 +214,37 @@ export async function getExistingBookmarkUrls(urls: string[]): Promise<Set<strin
   );
 }
 
+export type ExistingBookmark = {
+  id: string;
+  title: string;
+  categoryId: string;
+  categoryName: string;
+};
+
+/** Finds a bookmark by exact URL; null when it does not exist yet. */
+export async function getBookmarkByUrl(
+  url: string,
+): Promise<ExistingBookmark | null> {
+  return safeQuery(
+    'getBookmarkByUrl',
+    async (database) => {
+      const rows = await database
+        .select({
+          id: bookmarks.id,
+          title: bookmarks.title,
+          categoryId: bookmarks.categoryId,
+          categoryName: categories.name,
+        })
+        .from(bookmarks)
+        .innerJoin(categories, eq(categories.id, bookmarks.categoryId))
+        .where(eq(bookmarks.url, url))
+        .limit(1);
+      return rows[0] ?? null;
+    },
+    null,
+  );
+}
+
 /** Multi-row insert chunk size; keeps statements under pg's parameter cap. */
 const INSERT_CHUNK = 500;
 /** Rows per UPDATE ... FROM (VALUES ...) statement. */

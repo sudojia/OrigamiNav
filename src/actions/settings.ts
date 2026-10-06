@@ -1,11 +1,14 @@
 'use server';
 
+import { randomBytes } from 'node:crypto';
+
 import { z } from 'zod';
 
 import { guardAction } from '@/lib/action-guard';
 import { errorMessage } from '@/db/client';
 import {
   clampCardColumns,
+  deleteSecret,
   deleteSetting,
   SECRET_KEYS,
   SETTING_KEYS,
@@ -204,4 +207,42 @@ async function setOrDelete(key: string, value: string): Promise<void> {
   } else {
     await setSettings({ [key]: value });
   }
+}
+
+// ─── Browser-extension token ────────────────────────────────────────────────
+//
+// Bearer token for /api/ext/*; stored verbatim so the admin can view and
+// rotate it.
+
+const EXT_TOKEN_PREFIX = 'origaminav_';
+// 64 CSPRNG bytes → 512 bits of entropy, 86 base64url chars.
+const EXT_TOKEN_BYTES = 64;
+
+export type ExtTokenState = ActionState & { token?: string | null };
+
+/** Mints a fresh extension token, replacing any previous one. */
+export async function generateExtTokenAction(): Promise<ExtTokenState> {
+  const denied = await guardAction();
+  if (denied) return denied;
+
+  const token = `${EXT_TOKEN_PREFIX}${randomBytes(EXT_TOKEN_BYTES).toString('base64url')}`;
+  try {
+    await setSecret(SECRET_KEYS.extToken, token);
+  } catch (error) {
+    return { ok: false, message: `生成失败：${errorMessage(error)}` };
+  }
+  return { ok: true, message: '扩展令牌已生成，旧令牌已失效', token };
+}
+
+/** Deletes the extension token; every configured extension stops working. */
+export async function revokeExtTokenAction(): Promise<ExtTokenState> {
+  const denied = await guardAction();
+  if (denied) return denied;
+
+  try {
+    await deleteSecret(SECRET_KEYS.extToken);
+  } catch (error) {
+    return { ok: false, message: `吊销失败：${errorMessage(error)}` };
+  }
+  return { ok: true, message: '扩展令牌已吊销', token: null };
 }

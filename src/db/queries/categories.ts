@@ -54,6 +54,24 @@ export async function getCategoryById(id: string): Promise<Category | null> {
   );
 }
 
+/** Finds a category by exact name; null when it does not exist yet. */
+export async function getCategoryByName(
+  name: string,
+): Promise<Category | null> {
+  return safeQuery(
+    'getCategoryByName',
+    async (database) => {
+      const rows = await database
+        .select()
+        .from(categories)
+        .where(eq(categories.name, name))
+        .limit(1);
+      return rows[0] ?? null;
+    },
+    null,
+  );
+}
+
 /** Categories for the given ids; missing ids are simply absent. */
 export async function getCategoriesByIds(ids: string[]): Promise<Category[]> {
   if (!ids.length) return [];

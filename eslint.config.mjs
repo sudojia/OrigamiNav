@@ -10,6 +10,8 @@ const eslintConfig = [
       'drizzle/meta/**',
       'backups/**',
       'next-env.d.ts',
+      // Separate npm project (WXT extension); Next-specific rules don't apply.
+      'extension/**',
     ],
   },
   ...coreWebVitals,

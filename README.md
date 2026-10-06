@@ -98,6 +98,29 @@ DATABASE_URL="postgresql://user:password@host:5432/postgres"
 
 它是一条标准 PostgreSQL 连接串，服务器自建、Docker、任何托管平台都一样。完整说明见 [`.env.example`](./.env.example)。可选变量：`NEXT_PUBLIC_SITE_URL`、`TRUSTED_PROXY`、`DRIZZLE_LOG`。（通常不用设置）
 
+## 浏览器扩展
+
+官方配套浏览器扩展（Chrome / Edge 等 Chromium 内核浏览器）：在任意网页点一下工具栏图标，自动识别标题、链接、描述与站点图标，可直接新建分类、设为私有，一键收藏。
+
+**安装方式一：下载安装包（推荐，无需 Node 环境）**
+
+1. 前往 [GitHub Releases](https://github.com/sudojia/OrigamiNav/releases) 下载 `origaminav-extension-*-chrome.zip` 并解压；
+2. 打开 `chrome://extensions`，开启右上角「开发者模式」，点击「加载已解压的扩展程序」，选择解压出的目录；
+3. 在管理后台「设置 → 浏览器扩展」生成访问令牌；
+4. 打开扩展设置页，填入站点地址与令牌即可。
+
+**安装方式二：从源码构建**
+
+```bash
+git clone https://github.com/sudojia/OrigamiNav.git
+cd OrigamiNav/extension
+npm install && npm run build
+```
+
+然后同样在 `chrome://extensions` 加载 `extension/.output/chrome-mv3` 目录。
+
+详细说明见 [`extension/README.md`](./extension/README.md)。
+
 ## 技术栈
 
 | 层 | 选型 |

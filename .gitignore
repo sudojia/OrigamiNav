@@ -85,6 +85,8 @@ test-results/
 .continue/
 .codeium/
 .windsurf/
+AGENTS.md
+.zcode/
 
 # ─── Operating systems ───────────────────────────────────────────────────────
 .DS_Store

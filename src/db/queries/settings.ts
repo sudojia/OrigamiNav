@@ -46,6 +46,8 @@ export const SETTING_KEYS = {
 export const SECRET_KEYS = {
   aiApiKey: 'ai_api_key',
   sessionSecret: 'session_secret',
+  // Extension bearer token; stored verbatim so the admin can view and rotate it.
+  extToken: 'ext_token',
 } as const;
 
 const CARD_COLUMNS_MIN = 1;
@@ -178,6 +180,19 @@ export async function setSecret(key: string, value: string): Promise<void> {
 /** Deletes one secret row. */
 export async function deleteSecret(key: string): Promise<void> {
   await db.delete(secrets).where(eq(secrets.key, key));
+}
+
+/** Reads one secret verbatim; null when absent or the database is down. */
+export async function getSecretValue(key: string): Promise<string | null> {
+  return safeQuery('getSecretValue', async (database) => {
+    const rows = await database
+      .select({ value: secrets.value })
+      .from(secrets)
+      .where(eq(secrets.key, key))
+      .limit(1);
+    // A stored empty string counts as absent.
+    return rows[0]?.value || null;
+  }, null);
 }
 
 /** Reads a secret, creating it from `candidate` if absent; null on failure. */
