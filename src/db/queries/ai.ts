@@ -1,20 +1,67 @@
 import 'server-only';
 
-import { eq, inArray } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 
 import { safeQuery } from '../client';
-import { secrets, settings } from '../schema';
+import { bookmarks, bookmarksTags, secrets, settings } from '../schema';
 
 import { SECRET_KEYS, SETTING_KEYS } from './settings';
 
 import {
   clampAiTagCount,
+  clampAiTagMaxLen,
   DEFAULT_AI_TAG_RANGE,
   isAiProtocol,
   type AiProtocol,
 } from '@/types/nav';
 
 /** AI provider config; the API key lives in the secrets table. */
+
+const NO_TAGS = sql`not exists (select 1 from ${bookmarksTags} where ${bookmarksTags.bookmarkId} = ${bookmarks.id})`;
+
+export type UntaggedBookmark = {
+  id: string;
+  url: string;
+  title: string;
+  description: string;
+};
+
+/** Bookmarks carrying no tags at all, newest first. */
+export async function listUntaggedBookmarks(
+  limit: number,
+): Promise<UntaggedBookmark[]> {
+  return safeQuery(
+    'listUntaggedBookmarks',
+    async (database) =>
+      database
+        .select({
+          id: bookmarks.id,
+          url: bookmarks.url,
+          title: bookmarks.title,
+          description: bookmarks.description,
+        })
+        .from(bookmarks)
+        .where(NO_TAGS)
+        .orderBy(sql`${bookmarks.createdAt} desc`)
+        .limit(limit),
+    [],
+  );
+}
+
+/** How many bookmarks carry no tags at all. */
+export async function countUntaggedBookmarks(): Promise<number> {
+  return safeQuery(
+    'countUntaggedBookmarks',
+    async (database) => {
+      const rows = await database
+        .select({ n: sql<number>`count(*)::int` })
+        .from(bookmarks)
+        .where(NO_TAGS);
+      return rows[0]?.n ?? 0;
+    },
+    0,
+  );
+}
 
 export type AiConfig = {
   protocol: AiProtocol;
@@ -24,6 +71,8 @@ export type AiConfig = {
   /** Suggested tag-count range for the fill action, admin-configurable. */
   tagMin: number;
   tagMax: number;
+  /** Per-tag character cap fed to the prompt, admin-configurable. */
+  tagMaxLen: number;
 };
 
 export type AiConfigStatus = {
@@ -36,6 +85,8 @@ export type AiConfigStatus = {
   /** Suggested tag-count range for the fill action, admin-configurable. */
   tagMin: number;
   tagMax: number;
+  /** Per-tag character cap fed to the prompt, admin-configurable. */
+  tagMaxLen: number;
 };
 
 /** Reads AI settings rows plus the API key in one round-trip. */
@@ -57,6 +108,7 @@ async function readAiRows(): Promise<{
               SETTING_KEYS.aiProtocol,
               SETTING_KEYS.aiTagMin,
               SETTING_KEYS.aiTagMax,
+              SETTING_KEYS.aiTagMaxLen,
             ]),
           ),
         database
@@ -99,7 +151,14 @@ export async function getAiConfig(): Promise<AiConfig | null> {
   const baseUrl = (map.get(SETTING_KEYS.aiBaseUrl) ?? '').trim();
   const model = (map.get(SETTING_KEYS.aiModel) ?? '').trim();
   if (!baseUrl || !apiKey || !model) return null;
-  return { protocol: protocolOf(map), baseUrl, apiKey, model, ...tagRangeOf(map) };
+  return {
+    protocol: protocolOf(map),
+    baseUrl,
+    apiKey,
+    model,
+    tagMaxLen: clampAiTagMaxLen(map.get(SETTING_KEYS.aiTagMaxLen)),
+    ...tagRangeOf(map),
+  };
 }
 
 /** Safe-for-the-client view used by the settings form. */
@@ -110,6 +169,7 @@ export async function getAiConfigStatus(): Promise<AiConfigStatus> {
     baseUrl: (map.get(SETTING_KEYS.aiBaseUrl) ?? '').trim(),
     model: (map.get(SETTING_KEYS.aiModel) ?? '').trim(),
     ...tagRangeOf(map),
+    tagMaxLen: clampAiTagMaxLen(map.get(SETTING_KEYS.aiTagMaxLen)),
     hasApiKey: apiKey.length > 0,
     keyHint: apiKey.length >= 4 ? `…${apiKey.slice(-4)}` : apiKey ? '…' : null,
   };

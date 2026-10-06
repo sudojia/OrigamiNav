@@ -19,9 +19,13 @@ import { revalidateSite } from '@/lib/revalidate';
 import { LIMITS, optionalHttpUrlSchema } from '@/lib/validation';
 import { isValidHttpUrl } from '@/lib/utils';
 import {
+  AI_CONCURRENCY_BOUNDS,
   AI_PROTOCOLS,
   AI_TAG_COUNT_BOUNDS,
+  AI_TAG_LEN_BOUNDS,
   CATEGORY_DELETE_MODES,
+  DEFAULT_AI_CONCURRENCY,
+  DEFAULT_AI_TAG_MAX_LEN,
   DEFAULT_AI_TAG_RANGE,
   DEFAULT_LOGIN_RATE_LIMIT,
   DEFAULT_SESSION_MAX_DAYS,
@@ -31,7 +35,9 @@ import {
   LOGIN_RATE_LIMIT_BOUNDS,
   SESSION_MAX_DAYS_BOUNDS,
   SKIN_IDS,
+  clampAiConcurrency,
   clampAiTagCount,
+  clampAiTagMaxLen,
   clampLoginRateLimit,
   clampSessionMaxDays,
 } from '@/types/nav';
@@ -94,6 +100,16 @@ const settingsSchema = z
       .int()
       .min(AI_TAG_COUNT_BOUNDS.min)
       .max(AI_TAG_COUNT_BOUNDS.max),
+    aiConcurrency: z.coerce
+      .number()
+      .int()
+      .min(AI_CONCURRENCY_BOUNDS.min)
+      .max(AI_CONCURRENCY_BOUNDS.max),
+    aiTagMaxLen: z.coerce
+      .number()
+      .int()
+      .min(AI_TAG_LEN_BOUNDS.min)
+      .max(AI_TAG_LEN_BOUNDS.max),
   })
   .refine(
     (value) => value.faviconMode !== 'url' || value.faviconUrl !== '',
@@ -145,6 +161,10 @@ export async function updateSettingsAction(
     // Falls back to defaults when the fields are absent.
     aiTagMin: formData.get('aiTagMin') ?? String(DEFAULT_AI_TAG_RANGE.min),
     aiTagMax: formData.get('aiTagMax') ?? String(DEFAULT_AI_TAG_RANGE.max),
+    aiConcurrency:
+      formData.get('aiConcurrency') ?? String(DEFAULT_AI_CONCURRENCY),
+    aiTagMaxLen:
+      formData.get('aiTagMaxLen') ?? String(DEFAULT_AI_TAG_MAX_LEN),
   });
   if (!parsed.success) {
     return {
@@ -180,6 +200,12 @@ export async function updateSettingsAction(
       ),
       [SETTING_KEYS.aiTagMax]: String(
         clampAiTagCount(parsed.data.aiTagMax, DEFAULT_AI_TAG_RANGE.max),
+      ),
+      [SETTING_KEYS.aiConcurrency]: String(
+        clampAiConcurrency(parsed.data.aiConcurrency),
+      ),
+      [SETTING_KEYS.aiTagMaxLen]: String(
+        clampAiTagMaxLen(parsed.data.aiTagMaxLen),
       ),
     });
     // Removes the setting when the value is empty.

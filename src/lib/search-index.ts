@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { pinyinInitials, pinyinJoined, pinyinSpaced } from './pinyin';
+import { pinyinParts } from './pinyin';
 
 /** Builds the lowercase, space-joined `bookmarks.search_index` used for client-side filtering. */
 
@@ -22,13 +22,13 @@ function hostVariants(url: string): string[] {
   }
 }
 
+/** Pinyin forms of one text; the dictionary lookup runs once per text. */
 function pinyinVariants(text: string): string[] {
   if (!text) return [];
-  const joined = pinyinJoined(text);
+  const { syllables, initials } = pinyinParts(text);
+  const joined = syllables.join('');
   if (!joined) return [];
-  const spaced = pinyinSpaced(text);
-  const initials = pinyinInitials(text);
-  return [joined, spaced, initials].filter(Boolean);
+  return [joined, syllables.join(' '), initials.join('')].filter(Boolean);
 }
 
 export function buildSearchIndex(input: SearchIndexInput): string {

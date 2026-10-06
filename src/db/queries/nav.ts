@@ -3,6 +3,7 @@ import 'server-only';
 import { asc, eq, sql } from 'drizzle-orm';
 
 import { hostnameOf } from '@/lib/utils';
+import { categoryIconSvg } from '@/lib/category-icon-svg';
 import {
   EMPTY_NAV,
   type NavBookmark,
@@ -89,16 +90,21 @@ async function assemble(
     else bookmarksByCategory.set(row.categoryId, [bookmark]);
   }
 
-  const assembled: NavCategory[] = visibleCategories.map((row) => ({
-    id: row.id,
-    name: row.name,
-    slug: row.slug,
-    description: row.description,
-    icon: row.icon,
-    color: row.color,
-    hidden: row.hidden,
-    bookmarks: bookmarksByCategory.get(row.id) ?? [],
-  }));
+  const assembled: NavCategory[] = await Promise.all(
+    visibleCategories.map(async (row) => ({
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      description: row.description,
+      icon: row.icon,
+      // Rendered here rather than on the client: the icon registry is far
+      // larger than the handful of glyphs a nav payload actually needs.
+      iconSvg: await categoryIconSvg(row.icon),
+      color: row.color,
+      hidden: row.hidden,
+      bookmarks: bookmarksByCategory.get(row.id) ?? [],
+    })),
+  );
 
   return {
     categories: assembled,

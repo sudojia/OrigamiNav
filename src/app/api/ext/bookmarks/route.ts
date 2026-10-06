@@ -62,22 +62,18 @@ export async function POST(request: Request) {
   }
   const input = parsed.data;
 
-  const category = await getCategoryById(input.categoryId);
+  const [category, existing] = await Promise.all([
+    getCategoryById(input.categoryId),
+    input.force ? Promise.resolve(null) : getBookmarkByUrl(input.url),
+  ]);
   if (!category) {
     return extJson(
       { ok: false, message: '分类不存在，请刷新后重新选择' },
       { status: 400 },
     );
   }
-
-  if (!input.force) {
-    const existing = await getBookmarkByUrl(input.url);
-    if (existing) {
-      return extJson(
-        { ok: false, code: 'duplicate', existing },
-        { status: 409 },
-      );
-    }
+  if (existing) {
+    return extJson({ ok: false, code: 'duplicate', existing }, { status: 409 });
   }
 
   try {

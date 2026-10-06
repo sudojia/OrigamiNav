@@ -21,6 +21,7 @@ export function ConfirmDeleteDialog({
   onOpenChange,
   title,
   description,
+  confirmLabel = '删除',
   confirmDisabled = false,
   onConfirm,
 }: {
@@ -28,6 +29,7 @@ export function ConfirmDeleteDialog({
   onOpenChange: (open: boolean) => void;
   title: ReactNode;
   description: ReactNode;
+  confirmLabel?: string;
   /** Disables the confirm button. */
   confirmDisabled?: boolean;
   onConfirm: () => void;
@@ -52,7 +54,7 @@ export function ConfirmDeleteDialog({
               onConfirm();
             }}
           >
-            删除
+            {confirmLabel}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

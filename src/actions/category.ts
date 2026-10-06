@@ -12,7 +12,8 @@ import {
   renumberCategories,
   updateCategory,
 } from '@/db/queries/categories';
-import { CATEGORY_COLOR_OPTIONS, CATEGORY_ICON_OPTIONS } from '@/lib/category-meta';
+import { CATEGORY_COLOR_OPTIONS } from '@/lib/category-color';
+import { CATEGORY_ICON_OPTIONS } from '@/lib/category-meta';
 import { newId } from '@/lib/ids';
 import { getSiteSettings } from '@/db/queries/settings';
 import { revalidateSite } from '@/lib/revalidate';

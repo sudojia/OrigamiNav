@@ -43,7 +43,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { colorSwatchClass, resolveCategoryIcon } from '@/lib/category-meta';
+import { colorSwatchClass } from '@/lib/category-color';
+import { resolveCategoryIcon } from '@/lib/category-meta';
 import { tokenize } from '@/lib/filter';
 import { cn, formatDate, hostnameOf, truncate } from '@/lib/utils';
 

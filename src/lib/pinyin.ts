@@ -82,21 +82,6 @@ export function pinyinParts(text: string): PinyinParts {
   return { syllables, initials };
 }
 
-/** "百度" -> "bai du" */
-export function pinyinSpaced(text: string): string {
-  return pinyinParts(text).syllables.join(' ');
-}
-
-/** "百度" -> "baidu" */
-export function pinyinJoined(text: string): string {
-  return pinyinParts(text).syllables.join('');
-}
-
-/** "百度" -> "bd" */
-export function pinyinInitials(text: string): string {
-  return pinyinParts(text).initials.join('');
-}
-
 // ── ASCII slugs ──────────────────────────────────────────────────────────────
 
 /**

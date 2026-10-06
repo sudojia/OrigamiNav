@@ -29,6 +29,46 @@ const PROVIDERS: Record<
 
 const PROVIDER_TIMEOUT_MS = 2000;
 
+/** Distance outside the viewport at which a card starts resolving its icon.
+ *  Matches the browser's own lazy-loading threshold, so the chain never starts
+ *  later than the request it is waiting on. */
+const PRELOAD_MARGIN = '1200px';
+
+// ─── Shared viewport gate ────────────────────────────────────────────────────
+//
+// One observer for every icon. A card only starts its candidate chain once it
+// is near the viewport: `loading="lazy"` holds the request back until then, so
+// starting the timeout earlier would advance past candidates that were never
+// fetched and pin offscreen cards on the letter fallback for good.
+
+const pendingVisibility = new Map<Element, () => void>();
+let viewportObserver: IntersectionObserver | null = null;
+
+function observeOnce(element: Element, onVisible: () => void): () => void {
+  if (typeof IntersectionObserver === 'undefined') {
+    onVisible();
+    return () => {};
+  }
+  viewportObserver ??= new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const callback = pendingVisibility.get(entry.target);
+        pendingVisibility.delete(entry.target);
+        viewportObserver?.unobserve(entry.target);
+        callback?.();
+      }
+    },
+    { rootMargin: PRELOAD_MARGIN },
+  );
+  pendingVisibility.set(element, onVisible);
+  viewportObserver.observe(element);
+  return () => {
+    pendingVisibility.delete(element);
+    viewportObserver?.unobserve(element);
+  };
+}
+
 /** Providers for the configured service; 'auto' pairs a fast CN source with an independent fallback. */
 function providerChain(
   service: IconService,
@@ -90,6 +130,9 @@ export function Favicon({
   const [index, setIndex] = useState(0);
   // Drives the fade-in; flipped when the current candidate has painted.
   const [loaded, setLoaded] = useState(false);
+  // Flips once the card is near the viewport, which is when the chain starts.
+  const [nearViewport, setNearViewport] = useState(false);
+  const rootRef = useRef<HTMLSpanElement>(null);
 
   // Resets the fallback chain whenever the icon source changes — bookmark slot
   // (iconUrl/hostname) or service selection (service/customTemplate). Without
@@ -103,6 +146,8 @@ export function Favicon({
   }
 
   const exhausted = index >= candidates.length;
+  // Resolves only when there is a candidate left and the card is in range.
+  const resolving = nearViewport && !exhausted && candidates.length > 0;
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearTimer = useCallback(() => {
@@ -118,15 +163,23 @@ export function Favicon({
   }, [clearTimer]);
 
   useEffect(() => {
-    if (exhausted) return;
+    const element = rootRef.current;
+    if (!element || nearViewport || candidates.length === 0) return;
+    return observeOnce(element, () => setNearViewport(true));
+  }, [nearViewport, candidates.length]);
+
+  useEffect(() => {
+    if (!resolving) return;
     timerRef.current = setTimeout(advance, PROVIDER_TIMEOUT_MS);
     return clearTimer;
-  }, [exhausted, advance, clearTimer, index, signature]);
+  }, [resolving, advance, clearTimer, index, signature]);
 
-  if (exhausted || candidates.length === 0) {
-    const letter = (title.trim()[0] ?? hostname[0] ?? '?').toUpperCase();
+  const letter = (title.trim()[0] ?? hostname[0] ?? '?').toUpperCase();
+
+  if (candidates.length === 0 || exhausted) {
     return (
       <span
+        ref={rootRef}
         aria-hidden
         className={cn(
           'flex shrink-0 items-center justify-center rounded-md text-[0.7rem] font-semibold text-white select-none',
@@ -143,8 +196,15 @@ export function Favicon({
     );
   }
 
+  if (!nearViewport) {
+    // Holds the tile's box open until the card is close enough to resolve.
+    return (
+      <span ref={rootRef} aria-hidden className={cn('flex shrink-0', className)} />
+    );
+  }
+
   return (
-    <span className={cn('flex shrink-0', className)}>
+    <span ref={rootRef} className={cn('flex shrink-0', className)}>
       {/* Uses a plain <img>; the fallback chain needs onError. Keyed by src so
           a candidate switch mounts a fresh node instead of mutating this one. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}

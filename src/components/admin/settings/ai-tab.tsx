@@ -1,10 +1,12 @@
 'use client';
 
 import {
+  AlertTriangle,
   Bot,
   Check,
   ChevronsUpDown,
   Loader2,
+  PlugZap,
   Plus,
   RefreshCw,
   Sparkles,
@@ -25,16 +27,97 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { AI_TAG_COUNT_BOUNDS, type AiProtocol } from '@/types/nav';
+import {
+  AI_CONCURRENCY_BOUNDS,
+  AI_TAG_COUNT_BOUNDS,
+  AI_TAG_LEN_BOUNDS,
+  type AiProtocol,
+} from '@/types/nav';
 
-import { SettingsField, SettingsSelect } from '../form-primitives';
+import { SettingsField } from '../form-primitives';
 import { FieldSection } from './field-section';
 
 const TAG_COUNT_OPTIONS = Array.from(
   { length: AI_TAG_COUNT_BOUNDS.max - AI_TAG_COUNT_BOUNDS.min + 1 },
   (_, i) => AI_TAG_COUNT_BOUNDS.min + i,
 );
+
+const AI_CONCURRENCY_OPTIONS = Array.from(
+  { length: AI_CONCURRENCY_BOUNDS.max - AI_CONCURRENCY_BOUNDS.min + 1 },
+  (_, i) => AI_CONCURRENCY_BOUNDS.min + i,
+);
+
+const TAG_LEN_OPTIONS = Array.from(
+  { length: AI_TAG_LEN_BOUNDS.max - AI_TAG_LEN_BOUNDS.min + 1 },
+  (_, i) => AI_TAG_LEN_BOUNDS.min + i,
+);
+
+/** Compact labelled select used by the tag-generation rows. */
+function RowSelect({
+  id,
+  ariaLabel,
+  value,
+  onValueChange,
+  options,
+  triggerClassName,
+}: {
+  id: string;
+  ariaLabel: string;
+  value: string;
+  onValueChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  triggerClassName?: string;
+}) {
+  return (
+    <Select value={value} onValueChange={onValueChange}>
+      <SelectTrigger
+        id={id}
+        aria-label={ariaLabel}
+        className={cn('w-24', triggerClassName)}
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/** One label/control row inside the tag-generation panel. */
+function ParamRow({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
+      <div className="min-w-0">
+        <p className="text-sm font-medium">{label}</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+          {hint}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">{children}</div>
+    </div>
+  );
+}
 
 const AI_PROTOCOL_OPTIONS: Array<{
   value: AiProtocol;
@@ -75,7 +158,12 @@ export type AiStatus = {
   /** Suggested tag-count range. */
   tagMin: number;
   tagMax: number;
+  /** Per-tag character cap. */
+  tagMaxLen: number;
 };
+
+/** Outcome of the last connection test. */
+export type AiTestResult = { ok: boolean; message: string };
 
 export interface AiTabProps {
   active: boolean;
@@ -86,6 +174,12 @@ export interface AiTabProps {
   model: string;
   tagMin: string;
   tagMax: string;
+  tagMaxLen: string;
+  aiConcurrency: string;
+  untaggedCount: number;
+  batchRunning: boolean;
+  testingConnection: boolean;
+  testResult: AiTestResult | null;
   models: string[];
   modelOpen: boolean;
   modelSearch: string;
@@ -97,9 +191,13 @@ export interface AiTabProps {
   onModelOpenChange: (open: boolean) => void;
   onPickModel: (name: string) => void;
   onFetchModels: () => void;
+  onTestConnection: () => void;
   onClearKey: () => void;
   onTagMinChange: (value: string) => void;
   onTagMaxChange: (value: string) => void;
+  onTagMaxLenChange: (value: string) => void;
+  onAiConcurrencyChange: (value: string) => void;
+  onBatchRetag: () => void;
 }
 
 export function AiTab({
@@ -111,6 +209,12 @@ export function AiTab({
   model,
   tagMin,
   tagMax,
+  tagMaxLen,
+  aiConcurrency,
+  untaggedCount,
+  batchRunning,
+  testingConnection,
+  testResult,
   models,
   modelOpen,
   modelSearch,
@@ -122,9 +226,13 @@ export function AiTab({
   onModelOpenChange,
   onPickModel,
   onFetchModels,
+  onTestConnection,
   onClearKey,
   onTagMinChange,
   onTagMaxChange,
+  onTagMaxLenChange,
+  onAiConcurrencyChange,
+  onBatchRetag,
 }: AiTabProps) {
   // Includes the saved model in the options before a fetch.
   const modelOptions = Array.from(
@@ -227,22 +335,44 @@ export function AiTab({
           divided
           Icon={Sparkles}
           title="模型"
-          description="从服务端获取可用模型列表，也可以直接输入模型名。"
+          description="从服务端获取可用模型列表，也可以直接输入模型名；测试连接会真实调用一次模型。"
           action={
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={loadingModels}
-              onClick={onFetchModels}
-            >
-              {loadingModels ? (
-                <Loader2 className="size-3.5 animate-spin" aria-hidden />
-              ) : (
-                <RefreshCw className="size-3.5" aria-hidden />
-              )}
-              {loadingModels ? '获取中…' : '获取模型'}
-            </Button>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={
+                  testingConnection ||
+                  loadingModels ||
+                  !baseUrl ||
+                  !model ||
+                  (!apiKey && !status.hasApiKey)
+                }
+                onClick={onTestConnection}
+              >
+                {testingConnection ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <PlugZap className="size-3.5" aria-hidden />
+                )}
+                {testingConnection ? '测试中…' : '测试连接'}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={loadingModels || testingConnection}
+                onClick={onFetchModels}
+              >
+                {loadingModels ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <RefreshCw className="size-3.5" aria-hidden />
+                )}
+                {loadingModels ? '获取中…' : '获取模型'}
+              </Button>
+            </div>
           }
         >
           <div className="space-y-2">
@@ -343,36 +473,134 @@ export function AiTab({
                 已获取 {models.length} 个模型
               </p>
             ) : null}
+
+            {testResult ? (
+              <p
+                role="status"
+                className={cn(
+                  'flex items-start gap-1.5 rounded-md px-2.5 py-1.5 text-xs leading-relaxed',
+                  testResult.ok
+                    ? 'bg-chart-3/10 text-chart-3'
+                    : 'bg-destructive/10 text-destructive',
+                )}
+              >
+                {testResult.ok ? (
+                  <Check className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                ) : (
+                  <AlertTriangle
+                    className="mt-0.5 size-3.5 shrink-0"
+                    aria-hidden
+                  />
+                )}
+                <span className="min-w-0 break-words">{testResult.message}</span>
+              </p>
+            ) : null}
           </div>
         </FieldSection>
 
         <FieldSection
           divided
           Icon={Tags}
-          title="标签数量"
-          description="「AI 标签」生成的个数范围，保存后立即生效。"
+          title="标签生成"
+          description="每条书签的标签数量、单标签字数与请求并发，保存后立即生效。"
         >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <SettingsSelect
-              id="settings-ai-tag-min"
-              label="最少"
-              value={tagMin}
-              onValueChange={onTagMinChange}
-              options={TAG_COUNT_OPTIONS.map((n) => ({
-                value: String(n),
-                label: `${n} 个`,
-              }))}
-            />
-            <SettingsSelect
-              id="settings-ai-tag-max"
-              label="最多"
-              value={tagMax}
-              onValueChange={onTagMaxChange}
-              options={TAG_COUNT_OPTIONS.map((n) => ({
-                value: String(n),
-                label: `${n} 个`,
-              }))}
-            />
+          <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70">
+            <ParamRow
+              label="标签数量"
+              hint="每条书签生成的标签个数区间。"
+            >
+              <RowSelect
+                id="settings-ai-tag-min"
+                ariaLabel="标签数量下限"
+                value={tagMin}
+                onValueChange={onTagMinChange}
+                options={TAG_COUNT_OPTIONS.map((n) => ({
+                  value: String(n),
+                  label: `${n} 个`,
+                }))}
+                triggerClassName="w-20"
+              />
+              <span className="text-xs text-muted-foreground">至</span>
+              <RowSelect
+                id="settings-ai-tag-max"
+                ariaLabel="标签数量上限"
+                value={tagMax}
+                onValueChange={onTagMaxChange}
+                options={TAG_COUNT_OPTIONS.map((n) => ({
+                  value: String(n),
+                  label: `${n} 个`,
+                }))}
+                triggerClassName="w-20"
+              />
+            </ParamRow>
+
+            <ParamRow
+              label="单标签字数"
+              hint="每个标签的字数上限，越短越精简。"
+            >
+              <RowSelect
+                id="settings-ai-tag-len"
+                ariaLabel="单标签字数上限"
+                value={tagMaxLen}
+                onValueChange={onTagMaxLenChange}
+                options={TAG_LEN_OPTIONS.map((n) => ({
+                  value: String(n),
+                  label: `≤ ${n} 字`,
+                }))}
+              />
+            </ParamRow>
+
+            <ParamRow
+              label="并发数"
+              hint="同时进行的 AI 请求上限，批量收藏时调低可避免服务限流。"
+            >
+              <RowSelect
+                id="settings-ai-concurrency"
+                ariaLabel="并发数"
+                value={aiConcurrency}
+                onValueChange={onAiConcurrencyChange}
+                options={AI_CONCURRENCY_OPTIONS.map((n) => ({
+                  value: String(n),
+                  label: `${n} 个并发`,
+                }))}
+                triggerClassName="w-28"
+              />
+            </ParamRow>
+          </div>
+        </FieldSection>
+
+        <FieldSection
+          divided
+          Icon={Tags}
+          title="补打标签"
+          description="为没有标签的书签批量补打 AI 标签，每批 10 个，可连续点击直到清零。"
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={
+                batchRunning ||
+                untaggedCount === 0 ||
+                !baseUrl ||
+                !model ||
+                !status.hasApiKey
+              }
+              onClick={onBatchRetag}
+            >
+              {batchRunning ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              ) : (
+                <Sparkles className="size-3.5" aria-hidden />
+              )}
+              {batchRunning ? '补打中…' : `补打一批（剩余 ${untaggedCount}）`}
+            </Button>
+            {untaggedCount === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                所有书签都有标签了。
+              </p>
+            ) : null}
           </div>
         </FieldSection>
       </div>
@@ -388,6 +616,9 @@ export function AiRail({
   baseUrl,
   tagMin,
   tagMax,
+  tagMaxLen,
+  aiConcurrency,
+  untaggedCount,
 }: {
   status: AiStatus;
   /** The form's live protocol choice. */
@@ -396,6 +627,9 @@ export function AiRail({
   baseUrl: string;
   tagMin: number;
   tagMax: number;
+  tagMaxLen: number;
+  aiConcurrency: number;
+  untaggedCount: number;
 }) {
   const rows: Array<[string, string]> = [
     ['协议', protocol === 'anthropic' ? 'Anthropic Messages' : 'OpenAI 兼容'],
@@ -403,6 +637,9 @@ export function AiRail({
     ['API Key', status.hasApiKey ? `已配置 ${status.keyHint ?? ''}` : '未配置'],
     ['模型', model || '未选择'],
     ['标签数量', tagMin === tagMax ? `${tagMin} 个` : `${tagMin}-${tagMax} 个`],
+    ['标签字数', `≤ ${tagMaxLen} 字`],
+    ['并发数', `${aiConcurrency} 个`],
+    ['未打标签', untaggedCount === 0 ? '无' : `${untaggedCount} 个`],
   ];
   const ready = Boolean(baseUrl) && status.hasApiKey && Boolean(model);
 

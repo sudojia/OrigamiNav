@@ -14,14 +14,17 @@ import { buildDonutSlices, RankBar, StatCard } from '@/components/admin/charts';
 import { CategoryDonut } from '@/components/admin/charts-client';
 import { TopTagsPanel } from '@/components/admin/top-tags';
 import { Favicon } from '@/components/nav/favicon';
-import { getTagUsage } from '@/db/queries/nav';
+import {
+  getTagStats,
+  getTopTagUsage,
+} from '@/db/queries/tags';
 import {
   getAdminCounts,
   getCategoryDistribution,
   getClickStats,
   getRecentBookmarks,
 } from '@/db/queries/stats';
-import { colorSwatchClass } from '@/lib/category-meta';
+import { colorSwatchClass } from '@/lib/category-color';
 import { requireAdminPage } from '@/lib/session';
 import { formatDate, hostnameOf } from '@/lib/utils';
 
@@ -34,22 +37,18 @@ const RANK_LIST_LIMIT = 10;
 export default async function AdminHomePage() {
   await requireAdminPage();
 
-  const [counts, distribution, recent, tagUsage, clicks] = await Promise.all([
-    getAdminCounts(),
-    getCategoryDistribution(),
-    getRecentBookmarks(12),
-    getTagUsage(),
-    getClickStats(RANK_LIST_LIMIT),
-  ]);
+  const [counts, distribution, recent, topTags, tagStats, clicks] =
+    await Promise.all([
+      getAdminCounts(),
+      getCategoryDistribution(),
+      getRecentBookmarks(12),
+      // Ranking head plus counters, so the dashboard never reads every tag.
+      getTopTagUsage(RANK_LIST_LIMIT),
+      getTagStats(),
+      getClickStats(RANK_LIST_LIMIT),
+    ]);
 
   const maxCount = Math.max(1, ...distribution.map((d) => d.count));
-  // Rank used tags by count, then name.
-  const usedTags = tagUsage.filter((tag) => tag.count > 0);
-  const usedTagTotal = usedTags.length;
-  const topTags = usedTags
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
-    .slice(0, RANK_LIST_LIMIT);
-  const tagRefTotal = usedTags.reduce((sum, tag) => sum + tag.count, 0);
 
   const maxClicks = Math.max(1, ...clicks.items.map((item) => item.clickCount));
 
@@ -191,8 +190,8 @@ export default async function AdminHomePage() {
 
         <TopTagsPanel
           tags={topTags}
-          total={usedTagTotal}
-          refTotal={tagRefTotal}
+          total={tagStats.used}
+          refTotal={tagStats.refs}
         />
       </div>
 

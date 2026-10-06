@@ -1,6 +1,7 @@
 'use client';
 
 import { Github, Plus, Search, Settings2, XCircle, EyeOff } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {
   useCallback,
@@ -11,8 +12,8 @@ import {
   useState,
 } from 'react';
 import { toast } from 'sonner';
+import { aiTagBookmarkAction } from '@/actions/ai';
 import { deleteBookmarkAction } from '@/actions/bookmark';
-import { BookmarkFormDialog } from '@/components/admin/bookmark-form-dialog';
 import { BookmarkCard } from '@/components/nav/bookmark-card';
 import { CommandPalette } from '@/components/nav/command-palette';
 import { NavChipBar, NavSidebar } from '@/components/nav/nav-sidebar';
@@ -36,6 +37,18 @@ import { PROJECT_START_YEAR, PROJECT_URL } from '@/lib/project-links';
 import { cn } from '@/lib/utils';
 import type { NavBookmark, NavData, SiteSettings } from '@/types/nav';
 
+/**
+ * Admin-only edit form, split out of the public bundle. It renders only after
+ * a signed-in admin opens it, so nothing is lost by loading it on demand.
+ */
+const BookmarkFormDialog = dynamic(
+  () =>
+    import('@/components/admin/bookmark-form-dialog').then(
+      (mod) => mod.BookmarkFormDialog,
+    ),
+  { ssr: false },
+);
+
 /** "2026" in the start year, then "2026 - 2027" once the year rolls over. */
 function copyrightYearLabel(currentYear: number): string {
   return currentYear > PROJECT_START_YEAR
@@ -58,6 +71,8 @@ export function NavClient({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [deleting, setDeleting] = useState<NavBookmark | null>(null);
+  const [retagging, setRetagging] = useState<NavBookmark | null>(null);
+  const [retagBusy, setRetagBusy] = useState(false);
   const [editing, setEditing] = useState<NavBookmark | null>(null);
   const [creating, setCreating] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -156,6 +171,14 @@ export function NavClient({
       cancelled = true;
     };
   }, []);
+
+  // Warms the lazily-imported admin dialog once the visitor turns out to be an
+  // admin, so the first open is instant without putting it in the shared
+  // anonymous bundle.
+  useEffect(() => {
+    if (!isAdmin) return;
+    void import('@/components/admin/bookmark-form-dialog');
+  }, [isAdmin]);
 
   const scrollToCategory = useCallback((slug: string) => {
     const el = sectionRefs.current.get(slug);
@@ -328,6 +351,39 @@ export function NavClient({
       toast.error(result.message);
     }
   }, [deleting, refreshNav]);
+
+  // Regenerates one bookmark's tags; replaces whatever it has now.
+  const runRetag = useCallback(
+    async (bookmark: NavBookmark) => {
+      setRetagBusy(true);
+      const toastId = toast.loading('正在重打标签…');
+      try {
+        const result = await aiTagBookmarkAction(bookmark.id);
+        if (result.ok) {
+          toast.success(result.message, { id: toastId });
+          await refreshNav();
+        } else {
+          toast.error(result.message, { id: toastId });
+        }
+      } finally {
+        setRetagBusy(false);
+        setRetagging(null);
+      }
+    },
+    [refreshNav],
+  );
+
+  // Retag replaces tags, so bookmarks that already have some ask first.
+  const requestRetag = useCallback(
+    (bookmark: NavBookmark) => {
+      if (bookmark.tags.length === 0) {
+        void runRetag(bookmark);
+        return;
+      }
+      setRetagging(bookmark);
+    },
+    [runRetag],
+  );
 
   const hasFilters = deferredQuery.trim().length > 0 || activeTags.length > 0;
   const searching = hasFilters;
@@ -540,8 +596,10 @@ export function NavClient({
                         key={bookmark.id}
                         bookmark={bookmark}
                         isAdmin={isAdmin}
+                        aiEnabled={settings.aiEnabled}
                         onEdit={editBookmark}
                         onDelete={setDeleting}
+                        onRetag={requestRetag}
                         highlightRegex={highlightRegex}
                       />
                     ))}
@@ -618,6 +676,36 @@ export function NavClient({
           onClose={closeCreate}
         />
       ) : null}
+
+      {/* Retag confirmation; only for bookmarks that already have tags. */}
+      <AlertDialog
+        open={retagging !== null}
+        onOpenChange={(open) => {
+          if (!open && !retagBusy) setRetagging(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>重打「{retagging?.title}」的标签？</AlertDialogTitle>
+            <AlertDialogDescription>
+              会用 AI 重新生成标签，替换现有的 {retagging?.tags.length ?? 0}{' '}
+              个标签。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={retagBusy}>取消</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={retagBusy}
+              onClick={(event) => {
+                event.preventDefault();
+                if (retagging) void runRetag(retagging);
+              }}
+            >
+              {retagBusy ? '重打中…' : '重打标签'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Delete confirmation. */}
       <AlertDialog

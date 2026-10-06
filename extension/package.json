@@ -1,6 +1,6 @@
 {
   "name": "origaminav-extension",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "OrigamiNav 浏览器扩展：在任意网页一键收藏到 OrigamiNav。",
   "license": "MIT",

@@ -1,6 +1,6 @@
 'use client';
 
-import { resolveCategoryIcon, colorSwatchClass } from '@/lib/category-meta';
+import { colorSwatchClass } from '@/lib/category-color';
 import { cn } from '@/lib/utils';
 import type { NavCategory } from '@/types/nav';
 
@@ -29,7 +29,6 @@ export function NavSidebar({
         {categories.map((category) => {
           const active = category.id === activeId;
           const count = counts.get(category.id) ?? category.bookmarks.length;
-          const Icon = resolveCategoryIcon(category.icon)?.Icon;
           return (
             <li key={category.id}>
               <a
@@ -52,9 +51,9 @@ export function NavSidebar({
                     'flex size-6 shrink-0 items-center justify-center rounded-md text-white transition-transform group-hover:scale-105',
                     colorSwatchClass(category.color),
                   )}
-                >
-                  {Icon ? <Icon className="size-3.5" /> : null}
-                </span>
+                  // Server-rendered from the fixed icon registry, never user text.
+                  dangerouslySetInnerHTML={{ __html: category.iconSvg ?? '' }}
+                />
                 <span className="min-w-0 flex-1 truncate">{category.name}</span>
                 <span
                   className={cn(

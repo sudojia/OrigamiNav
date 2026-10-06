@@ -1,14 +1,23 @@
 'use server';
 
-import { getAiConfig, getAiConfigStatus } from '@/db/queries/ai';
-import { deleteSecret, SECRET_KEYS } from '@/db/queries/settings';
+import {
+  countUntaggedBookmarks,
+  getAiConfig,
+  getAiConfigStatus,
+  listUntaggedBookmarks,
+} from '@/db/queries/ai';
+import { getBookmarkById } from '@/db/queries/bookmarks';
+import { deleteSecret, getSecretValue, SECRET_KEYS } from '@/db/queries/settings';
 import { guardActionWithAdmin as guard } from '@/lib/action-guard';
 import {
   AiError,
+  chatCompletion,
   listModels,
   normalizeBaseUrl,
   toAiProtocol,
 } from '@/lib/ai';
+import { generateTagsForBatch, generateTagsWithQueue } from '@/lib/ai-tags';
+import { revalidateSite } from '@/lib/revalidate';
 import { createFixedWindowLimiter } from '@/lib/rate-limit';
 import { isValidHttpUrl } from '@/lib/utils';
 import type { AiProtocol } from '@/types/nav';
@@ -79,6 +88,141 @@ export async function clearAiKeyAction(): Promise<
     return { ok: false, message: aiMessage(error) };
   }
   return { ok: true, message: '已清除 API Key' };
+}
+
+// ─── Batch tag backfill ─────────────────────────────────────────────────────
+
+export type BatchRetagResult = {
+  ok: boolean;
+  message: string;
+  remaining: number;
+};
+
+/** AI-tags one batch of untagged bookmarks through the concurrency queue. */
+export async function aiTagUntaggedBatchAction(): Promise<BatchRetagResult> {
+  const auth = await guard();
+  if (!auth.ok) return { ok: false, message: auth.message, remaining: -1 };
+
+  const config = await getAiConfig();
+  if (!config) {
+    return { ok: false, message: '请先配置 AI 服务', remaining: -1 };
+  }
+
+  const batch = await listUntaggedBookmarks(10);
+  if (batch.length === 0) {
+    return { ok: true, message: '没有需要补打标签的书签', remaining: 0 };
+  }
+
+  // One shared tag context and concurrent provider calls, bounded by the
+  // admin's aiConcurrency inside the queue.
+  const tagged = await generateTagsForBatch(config, batch);
+  if (tagged > 0) revalidateSite();
+
+  const remaining = await countUntaggedBookmarks();
+  return {
+    ok: true,
+    message: `已为 ${tagged} 个书签补打标签`,
+    remaining,
+  };
+}
+
+// ─── Connection test ────────────────────────────────────────────────────────
+
+export type TestAiConnectionResult = { ok: boolean; message: string };
+
+/**
+ * Runs one tiny completion to prove the address, key and model work
+ * together; a blank key falls back to the stored one.
+ */
+export async function testAiConnectionAction(input: {
+  protocol: AiProtocol | string;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}): Promise<TestAiConnectionResult> {
+  const auth = await guard();
+  if (!auth.ok) return { ok: false, message: auth.message };
+  if (!rateLimiter.consume(`test:${auth.adminId}`)) {
+    return { ok: false, message: '操作太频繁，请稍后再试' };
+  }
+
+  const protocol = toAiProtocol(input.protocol);
+  const baseUrl = normalizeBaseUrl(input.baseUrl ?? '');
+  if (!isValidHttpUrl(baseUrl)) {
+    return { ok: false, message: '请先填写合法的 Base URL（http/https）' };
+  }
+
+  const model = (input.model ?? '').trim();
+  if (!model) return { ok: false, message: '请先选择或输入模型名' };
+
+  let apiKey = (input.apiKey ?? '').trim();
+  if (!apiKey) {
+    const stored = await getSecretValue(SECRET_KEYS.aiApiKey);
+    if (!stored) return { ok: false, message: '请先填写 API Key' };
+    apiKey = stored;
+  }
+
+  const startedAt = Date.now();
+  try {
+    const reply = await chatCompletion(
+      { protocol, baseUrl, apiKey, model },
+      [{ role: 'user', content: '这是一次连接测试，请只回复：OK' }],
+      { maxTokens: 64 },
+    );
+    const elapsed = Date.now() - startedAt;
+    const echo = reply.replace(/\s+/g, ' ').trim().slice(0, 40);
+    return {
+      ok: true,
+      message: `连接成功 · ${elapsed} ms${echo ? ` · 模型回复「${echo}」` : ''}`,
+    };
+  } catch (error) {
+    if (error instanceof AiError && error.message === '模型没有返回内容') {
+      return { ok: false, message: '接口已连通，但模型没有返回内容' };
+    }
+    return { ok: false, message: aiMessage(error) };
+  }
+}
+
+// ─── Single-bookmark retag ──────────────────────────────────────────────────
+
+export type RetagBookmarkResult = { ok: boolean; message: string };
+
+/**
+ * Regenerates one bookmark's tags from its current title, URL and
+ * description, replacing the tags it has now.
+ */
+export async function aiTagBookmarkAction(
+  bookmarkId: string,
+): Promise<RetagBookmarkResult> {
+  const auth = await guard();
+  if (!auth.ok) return { ok: false, message: auth.message };
+
+  const id = typeof bookmarkId === 'string' ? bookmarkId.trim() : '';
+  if (!id) return { ok: false, message: '书签不存在或已被删除' };
+  if (!rateLimiter.consume(`retag:${auth.adminId}`)) {
+    return { ok: false, message: '操作太频繁，请稍后再试' };
+  }
+
+  const config = await getAiConfig();
+  if (!config) return { ok: false, message: '请先在后台配置 AI 服务' };
+
+  const bookmark = await getBookmarkById(id);
+  if (!bookmark) return { ok: false, message: '书签不存在或已被删除' };
+
+  const ok = await generateTagsWithQueue(
+    config,
+    bookmark.id,
+    {
+      url: bookmark.url,
+      title: bookmark.title,
+      description: bookmark.description,
+    },
+    { replace: true },
+  );
+  if (!ok) return { ok: false, message: 'AI 没有返回标签，请稍后重试' };
+
+  revalidateSite();
+  return { ok: true, message: '已重打标签' };
 }
 
 function aiMessage(error: unknown): string {

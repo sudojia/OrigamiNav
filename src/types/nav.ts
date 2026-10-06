@@ -27,7 +27,10 @@ export type NavCategory = {
   name: string;
   slug: string;
   description: string;
+  /** Lucide icon name; kept for admin-side editing. */
   icon: string | null;
+  /** Pre-rendered icon markup, so the public page needs no icon registry. */
+  iconSvg: string | null;
   color: string | null;
   /** True only in the admin payload; hidden rows are absent from public data. */
   hidden: boolean;
@@ -75,6 +78,10 @@ export type SiteSettings = {
   loginRateLimit: number;
   /** True when base URL, key and model are all set. */
   aiEnabled: boolean;
+  /** Max characters per AI-generated tag, admin-configurable. */
+  aiTagMaxLen: number;
+  /** Max concurrent AI tag-generation requests, admin-configurable. */
+  aiConcurrency: number;
   installed: boolean;
 };
 
@@ -150,6 +157,22 @@ export function clampAiTagCount(value: unknown, fallback: number): number {
   return clampInt(value, AI_TAG_COUNT_BOUNDS, fallback);
 }
 
+/** Bounds and default for the per-tag character limit. */
+export const AI_TAG_LEN_BOUNDS = { min: 2, max: 12 } as const;
+export const DEFAULT_AI_TAG_MAX_LEN = 4;
+
+export function clampAiTagMaxLen(value: unknown): number {
+  return clampInt(value, AI_TAG_LEN_BOUNDS, DEFAULT_AI_TAG_MAX_LEN);
+}
+
+/** Bounds and default for concurrent AI tag-generation requests. */
+export const AI_CONCURRENCY_BOUNDS = { min: 1, max: 10 } as const;
+export const DEFAULT_AI_CONCURRENCY = 3;
+
+export function clampAiConcurrency(value: unknown): number {
+  return clampInt(value, AI_CONCURRENCY_BOUNDS, DEFAULT_AI_CONCURRENCY);
+}
+
 /** Bounds and default for the session lifetime in days. */
 export const SESSION_MAX_DAYS_BOUNDS = { min: 1, max: 30 } as const;
 export const DEFAULT_SESSION_MAX_DAYS = 7;
@@ -182,5 +205,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   sessionMaxDays: DEFAULT_SESSION_MAX_DAYS,
   loginRateLimit: DEFAULT_LOGIN_RATE_LIMIT,
   aiEnabled: false,
+  aiTagMaxLen: DEFAULT_AI_TAG_MAX_LEN,
+  aiConcurrency: DEFAULT_AI_CONCURRENCY,
   installed: false,
 };

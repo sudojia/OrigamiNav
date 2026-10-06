@@ -6,9 +6,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   CATEGORY_COLOR_OPTIONS,
+  colorSwatchClass,
+} from '@/lib/category-color';
+import {
   CATEGORY_ICON_GROUPS,
   CATEGORY_ICON_OPTIONS,
-  colorSwatchClass,
   resolveCategoryIcon,
 } from '@/lib/category-meta';
 import { cn } from '@/lib/utils';

@@ -4,6 +4,8 @@ import { and, eq, sql } from 'drizzle-orm';
 import { cache } from 'react';
 
 import {
+  clampAiConcurrency,
+  clampAiTagMaxLen,
   clampLoginRateLimit,
   clampSessionMaxDays,
   DEFAULT_SETTINGS,
@@ -38,6 +40,8 @@ export const SETTING_KEYS = {
   aiProtocol: 'ai_protocol',
   aiTagMin: 'ai_tag_min',
   aiTagMax: 'ai_tag_max',
+  aiTagMaxLen: 'ai_tag_max_len',
+  aiConcurrency: 'ai_concurrency',
   sessionMaxDays: 'session_max_days',
   loginRateLimit: 'login_rate_limit',
 } as const;
@@ -128,6 +132,8 @@ function settingsFromRows(
         aiKeyExists &&
         map.get(SETTING_KEYS.aiModel)?.trim(),
     ),
+    aiConcurrency: clampAiConcurrency(map.get(SETTING_KEYS.aiConcurrency)),
+    aiTagMaxLen: clampAiTagMaxLen(map.get(SETTING_KEYS.aiTagMaxLen)),
     installed: map.get(SETTING_KEYS.installed) === '1',
   };
 }

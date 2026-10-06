@@ -67,7 +67,9 @@ async function assembleGroups(
   }));
 }
 
-/** Creates a bookmark and its tag links, appended to the category end. */
+/** Creates a bookmark and its tag links, appended to the category end.
+ * The sort order is computed inside the INSERT, so the common no-tags path
+ * is a single round-trip. */
 export async function createBookmark(input: {
   categoryId: string;
   title: string;
@@ -78,43 +80,43 @@ export async function createBookmark(input: {
   tagIds: string[];
   tagNames: string[];
 }): Promise<Bookmark> {
-  return db.transaction(async (tx) => {
-    const maxRows = await tx
-      .select({ max: sql<number>`coalesce(max(${bookmarks.sortOrder}), -1)::int` })
-      .from(bookmarks)
-      .where(eq(bookmarks.categoryId, input.categoryId));
-    const rows = await tx
-      .insert(bookmarks)
-      .values({
-        ...newRow(),
-        categoryId: input.categoryId,
+  const rows = await db
+    .insert(bookmarks)
+    .values({
+      ...newRow(),
+      categoryId: input.categoryId,
+      title: input.title,
+      url: input.url,
+      description: input.description,
+      iconUrl: input.iconUrl,
+      sortOrder: sql`(select coalesce(max(${bookmarks.sortOrder}), -1) + 1 from ${bookmarks} where ${bookmarks.categoryId} = ${input.categoryId})`,
+      hidden: input.hidden,
+      searchIndex: buildSearchIndex({
         title: input.title,
         url: input.url,
         description: input.description,
-        iconUrl: input.iconUrl,
-        sortOrder: (maxRows[0]?.max ?? -1) + 1,
-        hidden: input.hidden,
-        searchIndex: buildSearchIndex({
-          title: input.title,
-          url: input.url,
-          description: input.description,
-          tagNames: input.tagNames,
-        }),
-      })
-      .returning();
-    const created = rows[0];
-    if (!created) throw new Error('Failed to create bookmark');
+        tagNames: input.tagNames,
+      }),
+    })
+    .returning();
+  const created = rows[0];
+  if (!created) throw new Error('Failed to create bookmark');
 
-    if (input.tagIds.length) {
-      await tx
+  if (input.tagIds.length) {
+    try {
+      await db
         .insert(bookmarksTags)
         .values(
           input.tagIds.map((tagId) => ({ bookmarkId: created.id, tagId })),
         )
         .onConflictDoNothing();
+    } catch (error) {
+      // Compensate so a failed tag write never leaves a half-created row.
+      await db.delete(bookmarks).where(eq(bookmarks.id, created.id));
+      throw error;
     }
-    return created;
-  });
+  }
+  return created;
 }
 
 /** Updates a bookmark and its tags; a category change appends to the end. */
@@ -238,6 +240,35 @@ export async function getBookmarkByUrl(
         .from(bookmarks)
         .innerJoin(categories, eq(categories.id, bookmarks.categoryId))
         .where(eq(bookmarks.url, url))
+        .limit(1);
+      return rows[0] ?? null;
+    },
+    null,
+  );
+}
+
+/** Text fields the AI tagger needs for one bookmark. */
+export type AiTagSource = {
+  id: string;
+  title: string;
+  url: string;
+  description: string;
+};
+
+/** Loads the fields the AI tagger works from; null when the row is gone. */
+export async function getBookmarkById(id: string): Promise<AiTagSource | null> {
+  return safeQuery(
+    'getBookmarkById',
+    async (database) => {
+      const rows = await database
+        .select({
+          id: bookmarks.id,
+          title: bookmarks.title,
+          url: bookmarks.url,
+          description: bookmarks.description,
+        })
+        .from(bookmarks)
+        .where(eq(bookmarks.id, id))
         .limit(1);
       return rows[0] ?? null;
     },

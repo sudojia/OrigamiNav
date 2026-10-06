@@ -13,7 +13,12 @@ import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import { clearAiKeyAction, fetchAiModelsAction } from '@/actions/ai';
+import {
+  aiTagUntaggedBatchAction,
+  clearAiKeyAction,
+  fetchAiModelsAction,
+  testAiConnectionAction,
+} from '@/actions/ai';
 import { updateSettingsAction } from '@/actions/settings';
 import {
   removeFaviconAction,
@@ -41,7 +46,12 @@ import {
   AppearanceTab,
   LayoutRail,
 } from './settings/appearance-tab';
-import { AiTab, AiRail, type AiStatus } from './settings/ai-tab';
+import {
+  AiTab,
+  AiRail,
+  type AiStatus,
+  type AiTestResult,
+} from './settings/ai-tab';
 import { ExtensionRail, ExtensionTab } from './settings/extension-tab';
 import { GeneralTab, IdentityPreview } from './settings/general-tab';
 import { SecurityTab, SecurityRail } from './settings/security-tab';
@@ -99,6 +109,7 @@ export function SettingsForm({
   settings,
   aiStatus,
   extToken,
+  untaggedCount,
 }: {
   settings: {
     siteName: string;
@@ -115,9 +126,11 @@ export function SettingsForm({
     categoryDeleteMode: string;
     sessionMaxDays: number;
     loginRateLimit: number;
+    aiConcurrency: number;
   };
   aiStatus: AiStatus;
   extToken: string | null;
+  untaggedCount: number;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -163,6 +176,16 @@ export function SettingsForm({
   const [aiModel, setAiModel] = useState(aiStatus.model);
   const [aiTagMin, setAiTagMin] = useState(String(aiStatus.tagMin));
   const [aiTagMax, setAiTagMax] = useState(String(aiStatus.tagMax));
+  const [aiTagMaxLen, setAiTagMaxLen] = useState(
+    String(aiStatus.tagMaxLen),
+  );
+  const [aiConcurrency, setAiConcurrency] = useState(
+    String(settings.aiConcurrency),
+  );
+  const [batchRemaining, setBatchRemaining] = useState(untaggedCount);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [testResult, setTestResult] = useState<AiTestResult | null>(null);
   const [models, setModels] = useState<string[]>([]);
   const [modelOpen, setModelOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState('');
@@ -244,6 +267,35 @@ export function SettingsForm({
     if (next === aiProtocol) return;
     setAiProtocol(next);
     setModels([]);
+    setTestResult(null);
+  }
+
+  // Editing anything the test used invalidates its result.
+  function handleBaseUrlChange(next: string) {
+    setAiBaseUrl(next);
+    setTestResult(null);
+  }
+
+  function handleApiKeyChange(next: string) {
+    setAiApiKey(next);
+    setTestResult(null);
+  }
+
+  async function handleTestConnection() {
+    if (testingConnection) return;
+    setTestingConnection(true);
+    try {
+      setTestResult(
+        await testAiConnectionAction({
+          protocol: aiProtocol,
+          baseUrl: aiBaseUrl,
+          apiKey: aiApiKey,
+          model: aiModel,
+        }),
+      );
+    } finally {
+      setTestingConnection(false);
+    }
   }
 
   function handleModelOpenChange(open: boolean) {
@@ -254,6 +306,7 @@ export function SettingsForm({
 
   function pickModel(name: string) {
     setAiModel(name);
+    setTestResult(null);
     handleModelOpenChange(false);
   }
 
@@ -272,10 +325,27 @@ export function SettingsForm({
     const result = await clearAiKeyAction();
     if (result.ok) {
       setAiApiKey('');
+      setTestResult(null);
       toast.success(result.message);
       router.refresh();
     } else {
       toast.error(result.message);
+    }
+  }
+
+  async function handleBatchRetag() {
+    if (batchRunning) return;
+    setBatchRunning(true);
+    try {
+      const result = await aiTagUntaggedBatchAction();
+      if (result.ok) {
+        toast.success(result.message);
+        setBatchRemaining(Math.max(result.remaining, 0));
+      } else {
+        toast.error(result.message);
+      }
+    } finally {
+      setBatchRunning(false);
     }
   }
 
@@ -416,6 +486,16 @@ export function SettingsForm({
             <input type="hidden" name="aiModel" value={aiModel} />
             <input type="hidden" name="aiTagMin" value={aiTagMin} />
             <input type="hidden" name="aiTagMax" value={aiTagMax} />
+            <input
+              type="hidden"
+              name="aiTagMaxLen"
+              value={aiTagMaxLen}
+            />
+            <input
+              type="hidden"
+              name="aiConcurrency"
+              value={aiConcurrency}
+            />
 
             <TabCardHead {...head} />
 
@@ -461,20 +541,30 @@ export function SettingsForm({
               model={aiModel}
               tagMin={aiTagMin}
               tagMax={aiTagMax}
+              tagMaxLen={aiTagMaxLen}
+              aiConcurrency={aiConcurrency}
+              untaggedCount={batchRemaining}
+              batchRunning={batchRunning}
+              testingConnection={testingConnection}
+              testResult={testResult}
               models={models}
               modelOpen={modelOpen}
               modelSearch={modelSearch}
               loadingModels={loadingModels}
               onProtocolChange={handleProtocolChange}
-              onBaseUrlChange={setAiBaseUrl}
-              onApiKeyChange={setAiApiKey}
+              onBaseUrlChange={handleBaseUrlChange}
+              onApiKeyChange={handleApiKeyChange}
               onModelSearchChange={setModelSearch}
               onModelOpenChange={handleModelOpenChange}
               onPickModel={pickModel}
               onFetchModels={handleFetchModels}
+              onTestConnection={() => void handleTestConnection()}
               onClearKey={handleClearKey}
               onTagMinChange={handleTagMinChange}
               onTagMaxChange={handleTagMaxChange}
+              onTagMaxLenChange={setAiTagMaxLen}
+              onAiConcurrencyChange={setAiConcurrency}
+              onBatchRetag={() => void handleBatchRetag()}
             />
 
             <SecurityTab
@@ -518,6 +608,9 @@ export function SettingsForm({
                 baseUrl={aiBaseUrl}
                 tagMin={Number(aiTagMin)}
                 tagMax={Number(aiTagMax)}
+                tagMaxLen={Number(aiTagMaxLen)}
+                aiConcurrency={Number(aiConcurrency)}
+                untaggedCount={batchRemaining}
               />
             ) : activeTab === 'appearance' ? (
               <LayoutRail columns={Number(cardColumns)} />

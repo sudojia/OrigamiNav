@@ -21,14 +21,19 @@ function reportClick(id: string) {
 function BookmarkCardImpl({
   bookmark,
   isAdmin,
+  aiEnabled,
   onEdit,
   onDelete,
+  onRetag,
   highlightRegex,
 }: {
   bookmark: NavBookmark;
   isAdmin: boolean;
+  /** Shows the retag entry only when the AI service is configured. */
+  aiEnabled?: boolean;
   onEdit?: (bookmark: NavBookmark) => void;
   onDelete?: (bookmark: NavBookmark) => void;
+  onRetag?: (bookmark: NavBookmark) => void;
   highlightRegex?: RegExp | null;
 }) {
   const card = (
@@ -100,6 +105,11 @@ function BookmarkCardImpl({
         <ContextMenuItem onSelect={() => onEdit?.(bookmark)}>
           编辑书签
         </ContextMenuItem>
+        {aiEnabled ? (
+          <ContextMenuItem onSelect={() => onRetag?.(bookmark)}>
+            重打标签
+          </ContextMenuItem>
+        ) : null}
         <ContextMenuSeparator />
         <ContextMenuItem
           variant="destructive"
