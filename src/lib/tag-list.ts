@@ -22,7 +22,7 @@ export type TagUsageFilter = (typeof TAG_USAGE_FILTERS)[number]['value'];
 
 /** Rows per page offered in the footer. */
 export const TAG_PAGE_SIZES = [24, 48, 96] as const;
-export const TAG_DEFAULT_PAGE_SIZE = 48;
+export const TAG_DEFAULT_PAGE_SIZE = 24;
 
 /** Cap on one bulk delete or merge, so a single action stays bounded. */
 export const TAG_BULK_LIMIT = 200;

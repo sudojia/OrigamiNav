@@ -222,7 +222,7 @@ export function BookmarkManager({
 
       {/* ── Toolbar ──────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 rounded-card border bg-card p-2.5 shadow-card">
-        <div className="relative min-w-40 flex-1">
+        <div className="relative min-w-40 max-w-sm flex-1">
           <Search
             aria-hidden
             className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -247,54 +247,56 @@ export function BookmarkManager({
           ) : null}
         </div>
 
-        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger className="h-8 w-auto min-w-32 gap-1.5 text-xs" aria-label="按分类筛选">
-            <FolderTree className="size-3.5 shrink-0 text-muted-foreground" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_CATEGORIES}>全部分类</SelectItem>
-            {groups.map((group) => (
-              <SelectItem key={group.category.id} value={group.category.id}>
-                {group.category.name}（{group.bookmarks.length}）
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="h-8 w-auto min-w-32 gap-1.5 text-xs" aria-label="按分类筛选">
+              <FolderTree className="size-3.5 shrink-0 text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_CATEGORIES}>全部分类</SelectItem>
+              {groups.map((group) => (
+                <SelectItem key={group.category.id} value={group.category.id}>
+                  {group.category.name}（{group.bookmarks.length}）
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
-        <div className="flex items-center rounded-md border border-border p-0.5">
-          <ViewButton
-            active={view === 'list'}
-            label="列表视图"
-            onClick={() => switchView('list')}
+          <div className="flex items-center rounded-md border border-border p-0.5">
+            <ViewButton
+              active={view === 'list'}
+              label="列表视图"
+              onClick={() => switchView('list')}
+            >
+              <List className="size-3.5" />
+            </ViewButton>
+            <ViewButton
+              active={view === 'cards'}
+              label="卡片视图"
+              onClick={() => switchView('cards')}
+            >
+              <LayoutGrid className="size-3.5" />
+            </ViewButton>
+          </div>
+
+          <Button
+            size="sm"
+            className="h-8"
+            onClick={() =>
+              setEditing({
+                mode: 'new',
+                categoryId:
+                  categoryFilter !== ALL_CATEGORIES
+                    ? categoryFilter
+                    : (groups[0]?.category.id ?? ''),
+              })
+            }
           >
-            <List className="size-3.5" />
-          </ViewButton>
-          <ViewButton
-            active={view === 'cards'}
-            label="卡片视图"
-            onClick={() => switchView('cards')}
-          >
-            <LayoutGrid className="size-3.5" />
-          </ViewButton>
+            <Plus className="size-4" />
+            添加书签
+          </Button>
         </div>
-
-        <Button
-          size="sm"
-          className="h-8"
-          onClick={() =>
-            setEditing({
-              mode: 'new',
-              categoryId:
-                categoryFilter !== ALL_CATEGORIES
-                  ? categoryFilter
-                  : (groups[0]?.category.id ?? ''),
-            })
-          }
-        >
-          <Plus className="size-4" />
-          添加书签
-        </Button>
       </div>
 
       {filtering ? (

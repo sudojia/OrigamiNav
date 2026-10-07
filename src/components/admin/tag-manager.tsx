@@ -324,8 +324,8 @@ export function TagManager({
 
       {/* Sticky on tablet and up; on phones the wrapped toolbar would eat the viewport. */}
       <div className="z-20 -mx-1 space-y-2 bg-background/90 px-1 py-2 backdrop-blur md:sticky md:top-14 lg:top-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-52 flex-1">
+        <div className="flex flex-wrap items-center gap-2 rounded-card border bg-card p-2.5 shadow-card">
+          <div className="relative min-w-52 max-w-sm flex-1">
             <Search
               aria-hidden
               className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
@@ -364,61 +364,63 @@ export function TagManager({
             ) : null}
           </div>
 
-          <UsageFilter
-            stats={stats}
-            value={query.usage}
-            onChange={(usage) => navigate({ usage })}
-          />
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <UsageFilter
+              stats={stats}
+              value={query.usage}
+              onChange={(usage) => navigate({ usage })}
+            />
 
-          <Select
-            value={query.sort}
-            onValueChange={(value) => navigate({ sort: value as TagSort })}
-          >
-            <SelectTrigger
-              className="h-9 w-auto min-w-38 gap-1.5 text-xs"
-              aria-label="排序方式"
+            <Select
+              value={query.sort}
+              onValueChange={(value) => navigate({ sort: value as TagSort })}
             >
-              <ArrowUpDown className="size-3.5 shrink-0 text-muted-foreground" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {TAG_SORT_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+              <SelectTrigger
+                className="h-9 w-auto min-w-38 gap-1.5 text-xs"
+                aria-label="排序方式"
+              >
+                <ArrowUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TAG_SORT_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
 
-          {/* Card view only pays off once several columns fit. */}
-          <div className="hidden items-center rounded-md border border-border p-0.5 md:flex">
-            <ViewButton
-              active={view === 'list'}
-              label="列表视图"
-              onClick={() => switchView('list')}
-            >
-              <List className="size-4" />
-            </ViewButton>
-            <ViewButton
-              active={view === 'grid'}
-              label="卡片视图"
-              onClick={() => switchView('grid')}
-            >
-              <LayoutGrid className="size-4" />
-            </ViewButton>
+            {/* Card view only pays off once several columns fit. */}
+            <div className="hidden items-center rounded-md border border-border p-0.5 md:flex">
+              <ViewButton
+                active={view === 'list'}
+                label="列表视图"
+                onClick={() => switchView('list')}
+              >
+                <List className="size-4" />
+              </ViewButton>
+              <ViewButton
+                active={view === 'grid'}
+                label="卡片视图"
+                onClick={() => switchView('grid')}
+              >
+                <LayoutGrid className="size-4" />
+              </ViewButton>
+            </div>
+
+            {stats.unused > 0 ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9"
+                onClick={() => setCleaningUnused(true)}
+              >
+                <BrushCleaning className="size-4" aria-hidden />
+                清理未使用（{stats.unused.toLocaleString('zh-CN')}）
+              </Button>
+            ) : null}
           </div>
-
-          {stats.unused > 0 ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-auto h-9"
-              onClick={() => setCleaningUnused(true)}
-            >
-              <BrushCleaning className="size-4" aria-hidden />
-              清理未使用（{stats.unused.toLocaleString('zh-CN')}）
-            </Button>
-          ) : null}
         </div>
 
         {selectedTags.length > 0 ? (
