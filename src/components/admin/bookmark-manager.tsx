@@ -14,6 +14,9 @@ import {
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
+  memo,
+  useCallback,
+  useDeferredValue,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -137,7 +140,10 @@ export function BookmarkManager({
     }
   }
 
-  const terms = useMemo(() => tokenize(query), [query]);
+  // Filtering runs against the deferred query, so typing stays responsive
+  // while the (memoized) rows update at a lower priority.
+  const deferredQuery = useDeferredValue(query);
+  const terms = useMemo(() => tokenize(deferredQuery), [deferredQuery]);
   const filtering = terms.length > 0;
 
   const visibleGroups = useMemo(() => {
@@ -188,6 +194,16 @@ export function BookmarkManager({
       else next.add(id);
       return next;
     });
+
+  // Stable identities so the memoized rows skip re-rendering whenever this
+  // component re-renders for an unrelated reason (typing, dialogs, collapse).
+  const openEditor = useCallback((bookmark: AdminBookmark) => {
+    setEditing({ mode: 'edit', bookmark });
+  }, []);
+
+  const requestDelete = useCallback((bookmark: AdminBookmark) => {
+    setDeleting(bookmark);
+  }, []);
 
   if (groups.length === 0) {
     return (
@@ -351,12 +367,16 @@ export function BookmarkManager({
                     items={group.bookmarks}
                     onReorder={filtering ? undefined : makeReorderHandler(group.category.id)}
                     className="space-y-1.5"
+                    // Skips layout and paint for offscreen rows; the intrinsic
+                    // size must match BookmarkRow's height (padding + two text
+                    // lines) or the list jitters while scrolling.
+                    itemClassName="[content-visibility:auto] [contain-intrinsic-size:auto_3.375rem]"
                     renderItem={(bookmark, _index, handle) => (
                       <BookmarkRow
                         bookmark={bookmark}
                         handle={filtering ? null : handle}
-                        onEdit={() => setEditing({ mode: 'edit', bookmark })}
-                        onDelete={() => setDeleting(bookmark)}
+                        onEdit={openEditor}
+                        onDelete={requestDelete}
                       />
                     )}
                   />
@@ -370,8 +390,8 @@ export function BookmarkManager({
                       <BookmarkGridCard
                         bookmark={bookmark}
                         handle={filtering ? null : handle}
-                        onEdit={() => setEditing({ mode: 'edit', bookmark })}
-                        onDelete={() => setDeleting(bookmark)}
+                        onEdit={openEditor}
+                        onDelete={requestDelete}
                       />
                     )}
                   />
@@ -454,7 +474,7 @@ function ViewButton({
 
 // ── List row ─────────────────────────────────────────────────────────────────
 
-function BookmarkRow({
+function BookmarkRowImpl({
   bookmark,
   handle,
   onEdit,
@@ -463,14 +483,15 @@ function BookmarkRow({
   bookmark: AdminBookmark;
   /** Null when drag-sorting is disabled. */
   handle: ReactNode;
-  onEdit: () => void;
-  onDelete: () => void;
+  onEdit: (bookmark: AdminBookmark) => void;
+  onDelete: (bookmark: AdminBookmark) => void;
 }) {
+  const hostname = hostnameOf(bookmark.url);
   return (
     <div className="flex items-center gap-2 rounded-lg border bg-card px-2.5 py-2">
       {handle}
       <Favicon
-        hostname={hostnameOf(bookmark.url)}
+        hostname={hostname}
         title={bookmark.title}
         iconUrl={bookmark.iconUrl}
         className="size-6"
@@ -487,7 +508,7 @@ function BookmarkRow({
           </a>
         </p>
         <p className="truncate text-xs text-muted-foreground">
-          {hostnameOf(bookmark.url)}
+          {hostname}
           {bookmark.description ? ` · ${truncate(bookmark.description, 60)}` : ''}
         </p>
       </div>
@@ -522,7 +543,7 @@ function BookmarkRow({
         size="icon"
         className="size-7 shrink-0"
         aria-label={`编辑 ${bookmark.title}`}
-        onClick={onEdit}
+        onClick={() => onEdit(bookmark)}
       >
         <Pencil className="size-3.5" />
       </Button>
@@ -531,7 +552,7 @@ function BookmarkRow({
         size="icon"
         className="size-7 shrink-0 text-destructive hover:text-destructive"
         aria-label={`删除 ${bookmark.title}`}
-        onClick={onDelete}
+        onClick={() => onDelete(bookmark)}
       >
         <Trash2 className="size-3.5" />
       </Button>
@@ -539,9 +560,12 @@ function BookmarkRow({
   );
 }
 
+/** Memoized: parent state changes that leave this row's props untouched skip it. */
+const BookmarkRow = memo(BookmarkRowImpl);
+
 // ── Grid card ────────────────────────────────────────────────────────────────
 
-function BookmarkGridCard({
+function BookmarkGridCardImpl({
   bookmark,
   handle,
   onEdit,
@@ -550,15 +574,16 @@ function BookmarkGridCard({
   bookmark: AdminBookmark;
   /** Null when drag-sorting is disabled. */
   handle: ReactNode;
-  onEdit: () => void;
-  onDelete: () => void;
+  onEdit: (bookmark: AdminBookmark) => void;
+  onDelete: (bookmark: AdminBookmark) => void;
 }) {
+  const hostname = hostnameOf(bookmark.url);
   return (
     <div className="flex h-full flex-col gap-2 rounded-lg border bg-card p-3">
       <div className="flex items-start gap-2.5">
         {handle ? <span className="mt-0.5">{handle}</span> : null}
         <Favicon
-          hostname={hostnameOf(bookmark.url)}
+          hostname={hostname}
           title={bookmark.title}
           iconUrl={bookmark.iconUrl}
           className="size-7"
@@ -566,7 +591,7 @@ function BookmarkGridCard({
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium">{bookmark.title}</p>
           <p className="truncate text-xs text-muted-foreground">
-            {hostnameOf(bookmark.url)}
+            {hostname}
           </p>
         </div>
         {bookmark.hidden ? (
@@ -580,7 +605,7 @@ function BookmarkGridCard({
             size="icon"
             className="size-7"
             aria-label={`编辑 ${bookmark.title}`}
-            onClick={onEdit}
+            onClick={() => onEdit(bookmark)}
           >
             <Pencil className="size-3.5" />
           </Button>
@@ -589,7 +614,7 @@ function BookmarkGridCard({
             size="icon"
             className="size-7 text-destructive hover:text-destructive"
             aria-label={`删除 ${bookmark.title}`}
-            onClick={onDelete}
+            onClick={() => onDelete(bookmark)}
           >
             <Trash2 className="size-3.5" />
           </Button>
@@ -624,3 +649,6 @@ function BookmarkGridCard({
     </div>
   );
 }
+
+/** Memoized: parent state changes that leave this card's props untouched skip it. */
+const BookmarkGridCard = memo(BookmarkGridCardImpl);

@@ -77,6 +77,11 @@ export function SortableList<T extends { id: string }>({
 
   const hydrated = useHydrated();
 
+  const byId = useMemo(
+    () => new Map(items.map((item) => [item.id, item])),
+    [items],
+  );
+
   // Pre-hydration render: plain list without drag handles.
   if (!hydrated) {
     return (
@@ -109,8 +114,6 @@ export function SortableList<T extends { id: string }>({
       }
     });
   }
-
-  const byId = new Map(items.map((item) => [item.id, item]));
 
   return (
     <DndContext
@@ -166,21 +169,28 @@ function SortableItem({
     isDragging,
   } = useSortable({ id });
 
-  // Drag handle element built by the hook's owner.
-  const handle = (
-    <button
-      type="button"
-      ref={setActivatorNodeRef}
-      className={cn(
-        'shrink-0 cursor-grab touch-none rounded p-1 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground active:cursor-grabbing',
-        handleClassName,
-      )}
-      aria-label="拖拽调整顺序"
-      {...attributes}
-      {...listeners}
-    >
-      <GripVertical className="size-4" />
-    </button>
+  // Drag handle element built by the hook's owner. Memoized because dnd-kit
+  // memoizes attributes/listeners and returns a stable ref callback: without
+  // this the element is new on every parent render, which would defeat the
+  // memoized rows that receive it. If those identities ever stop being stable,
+  // this simply degrades to the previous behaviour.
+  const handle = useMemo(
+    () => (
+      <button
+        type="button"
+        ref={setActivatorNodeRef}
+        className={cn(
+          'shrink-0 cursor-grab touch-none rounded p-1 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground active:cursor-grabbing',
+          handleClassName,
+        )}
+        aria-label="拖拽调整顺序"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="size-4" />
+      </button>
+    ),
+    [attributes, listeners, setActivatorNodeRef, handleClassName],
   );
 
   return (
