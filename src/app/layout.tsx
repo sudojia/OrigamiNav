@@ -4,7 +4,10 @@ import { Toaster } from 'sonner';
 
 import { Providers } from '@/components/providers';
 import { getSiteSettings } from '@/db/queries/settings';
-import { buildSkinInitScript } from '@/lib/theme-init';
+import {
+  buildAdminModeInitScript,
+  buildSkinInitScript,
+} from '@/lib/theme-init';
 
 import './globals.css';
 
@@ -68,6 +71,8 @@ export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const settings = await getSiteSettings();
+  // Dark-only skins hide the admin light/dark toggle.
+  const darkOnly = settings.defaultTheme === 'geek';
 
   return (
     // Suppresses hydration warnings for pre-hydration <html> mutations.
@@ -84,11 +89,17 @@ export default async function RootLayout({
       </head>
       <body className="min-h-dvh bg-background font-sans text-foreground antialiased">
         <Providers
-          forcedTheme={settings.defaultTheme === 'geek' ? 'dark' : undefined}
+          forcedTheme={darkOnly ? 'dark' : undefined}
           skin={settings.defaultTheme}
         >
           {children}
         </Providers>
+        {/* Pre-paint admin-shell mode; no-op outside /admin. The root layout
+            mounts once per page load, so client navigations never re-create
+            this script (a client-created <script> would error and not run). */}
+        <script
+          dangerouslySetInnerHTML={{ __html: buildAdminModeInitScript(darkOnly) }}
+        />
         <Toaster richColors position="top-center" />
       </body>
     </html>

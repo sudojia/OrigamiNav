@@ -6,21 +6,22 @@ export function buildSkinInitScript(serverDefaultSkin: string): string {
 }
 
 /**
- * Pre-paint script setting the admin shell's dark/light class from the
- * persisted key; `forceDark` pins dark-only skins.
+ * Pre-paint script for the root layout (after children): sets the admin
+ * shell's dark/light class from the persisted key; `forceDark` pins
+ * dark-only skins. No-op when no .admin-shell exists (public pages).
  */
 export function buildAdminModeInitScript(forceDark = false): string {
   if (forceDark) {
     return (
       `(function(){try{localStorage.removeItem('origaminav.admin-mode');}catch(e){}` +
-      `var el=document.currentScript&&document.currentScript.parentElement;if(!el)return;` +
+      `var el=document.querySelector('.admin-shell');if(!el)return;` +
       `el.classList.remove('dark','light');` +
       `el.classList.add('dark');})();`
     );
   }
   return (
     `(function(){var m='dark';try{m=localStorage.getItem('origaminav.admin-mode')||'light';}catch(e){}` +
-    `var el=document.currentScript&&document.currentScript.parentElement;if(!el)return;` +
+    `var el=document.querySelector('.admin-shell');if(!el)return;` +
     `el.classList.remove('dark','light');` +
     `el.classList.add(m==='dark'?'dark':'light');})();`
   );

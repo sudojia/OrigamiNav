@@ -4,7 +4,6 @@ import { AdminSidebar } from '@/components/admin/admin-sidebar';
 import { IconSettingsProvider } from '@/components/nav/icon-settings';
 import { getSiteSettings } from '@/db/queries/settings';
 import { requireAdminPage } from '@/lib/session';
-import { buildAdminModeInitScript } from '@/lib/theme-init';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,9 +27,6 @@ export default async function AdminLayout({
       className="admin-shell dark min-h-dvh bg-background lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]"
       suppressHydrationWarning
     >
-      <script
-        dangerouslySetInnerHTML={{ __html: buildAdminModeInitScript(darkOnly) }}
-      />
       <AdminSidebar
         username={admin.username}
         darkOnly={darkOnly}
