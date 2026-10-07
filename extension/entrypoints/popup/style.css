@@ -4,6 +4,16 @@
 body {
   width: 23rem;
   min-height: 12rem;
+  /* Body must never overflow: opening a Radix dropdown locks body scroll
+     (react-remove-scroll removes the body scrollbar), which resizes the
+     popup window and makes Radix Select close on its window resize listener.
+     Scroll #root instead; its scrollbar is untouched by the lock. */
+  overflow: hidden;
+}
+
+#root {
+  max-height: 36rem;
+  overflow-y: auto;
 }
 
 @keyframes pop-in {

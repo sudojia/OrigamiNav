@@ -76,6 +76,7 @@ export function App() {
   const [createCategoryError, setCreateCategoryError] = useState<string | null>(
     null,
   );
+  const [favIconFailed, setFavIconFailed] = useState(false);
 
   const boot = useCallback(async () => {
     // No setState before the first await (react-hooks/set-state-in-effect).
@@ -84,6 +85,7 @@ export function App() {
     setDuplicate(null);
     setSaveError(null);
     setContext(null);
+    setFavIconFailed(false);
 
     if (!pageMeta) {
       setMeta(null);
@@ -302,21 +304,19 @@ export function App() {
     <div className="flex flex-col gap-3.5 p-4">
       {/* Page header: favicon + hostname + site identity. */}
       <header className="flex items-center gap-2.5">
-        {meta?.favIconUrl ? (
-          <img
-            src={meta.favIconUrl}
-            alt=""
-            aria-hidden
-            className="size-8 shrink-0 rounded-md border bg-card object-contain p-0.5"
-            onError={(event) => {
-              event.currentTarget.style.display = 'none';
-            }}
-          />
-        ) : (
-          <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-card">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-card">
+          {meta?.favIconUrl && !favIconFailed ? (
+            <img
+              src={meta.favIconUrl}
+              alt=""
+              aria-hidden
+              className="size-full rounded-[inherit] object-contain p-0.5"
+              onError={() => setFavIconFailed(true)}
+            />
+          ) : (
             <Globe className="size-4 text-muted-foreground" />
-          </span>
-        )}
+          )}
+        </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium">{hostname}</p>
           <p className="truncate text-[0.6875rem] text-muted-foreground">
@@ -418,6 +418,7 @@ export function App() {
           value={description}
           maxLength={DESCRIPTION_LIMIT}
           rows={2}
+          className="max-h-32"
           placeholder="页面描述（自动读取，可修改）"
           onChange={(event) => setDescription(event.target.value)}
         />
