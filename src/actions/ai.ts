@@ -12,6 +12,7 @@ import { guardActionWithAdmin as guard } from '@/lib/action-guard';
 import {
   AiError,
   chatCompletion,
+  COMPLETION_TOKEN_BUDGET,
   listModels,
   normalizeBaseUrl,
   toAiProtocol,
@@ -173,7 +174,7 @@ export async function testAiConnectionAction(input: {
     const reply = await chatCompletion(
       { protocol, baseUrl, apiKey, model },
       [{ role: 'user', content: '这是一次连接测试，请只回复：OK' }],
-      { maxTokens: 64 },
+      { maxTokens: COMPLETION_TOKEN_BUDGET },
     );
     const elapsed = Date.now() - startedAt;
     const echo = reply.replace(/\s+/g, ' ').trim().slice(0, 40);
@@ -182,8 +183,8 @@ export async function testAiConnectionAction(input: {
       message: `连接成功 · ${elapsed} ms${echo ? ` · 模型回复「${echo}」` : ''}`,
     };
   } catch (error) {
-    if (error instanceof AiError && error.message === '模型没有返回内容') {
-      return { ok: false, message: '接口已连通，但模型没有返回内容' };
+    if (error instanceof AiError && error.message.startsWith('模型没有返回内容')) {
+      return { ok: false, message: `接口已连通，${error.message}` };
     }
     return { ok: false, message: aiMessage(error) };
   }

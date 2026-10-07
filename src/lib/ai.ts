@@ -26,6 +26,13 @@ export function isTransientAiError(error: unknown): boolean {
 
 const TIMEOUT_MS = 20_000;
 
+/**
+ * Completion budget for small structured outputs (connection test, tagging);
+ * generous because reasoning models spend much of it thinking before the
+ * answer, and max_tokens only caps usage, never inflates it.
+ */
+export const COMPLETION_TOKEN_BUDGET = 2000;
+
 /** Anthropic API version header. */
 const ANTHROPIC_VERSION = '2023-06-01';
 
@@ -72,7 +79,8 @@ async function describeFailure(
     /* body already consumed or unreadable */
   }
   if (response.status === 401 || response.status === 403) {
-    return 'API Key 无效或没有权限';
+    // Provider bodies often name the real cause (model entitlement, quota…).
+    return `API Key 无效或没有权限${detail ? `：${detail}` : ''}`;
   }
   if (response.status === 404) {
     const hint =
@@ -160,8 +168,9 @@ export async function chatCompletion(
 }
 
 /**
- * POST {base}/chat/completions (OpenAI dialect). Retries once without
- * `response_format` on a 400.
+ * POST {base}/chat/completions (OpenAI dialect). On 400: retries without
+ * `response_format`, or renames max_tokens when the model demands the newer
+ * `max_completion_tokens`.
  */
 async function openAiCompletion(
   config: AiProviderConfig,
@@ -169,6 +178,17 @@ async function openAiCompletion(
   options: { maxTokens?: number },
 ): Promise<string> {
   const url = endpoint(config.baseUrl, '/chat/completions');
+
+  const send = (body: Record<string, unknown>) =>
+    requestJson(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
   const body = {
     model: config.model,
     messages,
@@ -177,36 +197,59 @@ async function openAiCompletion(
     ...(options.maxTokens ? { max_tokens: options.maxTokens } : {}),
   };
 
-  const send = (withJsonMode: boolean) =>
-    requestJson(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(
-        withJsonMode ? { ...body, response_format: { type: 'json_object' } } : body,
-      ),
-    });
-
   let payload: unknown;
   try {
-    payload = await send(true);
+    payload = await send({ ...body, response_format: { type: 'json_object' } });
   } catch (error) {
-    if (error instanceof AiError && error.status === 400) {
-      payload = await send(false);
+    if (!(error instanceof AiError) || error.status !== 400) throw error;
+    // OpenAI reasoning models reject max_tokens; retry with the newer name.
+    if (/max_completion_tokens/i.test(error.message)) {
+      const renamed = {
+        model: config.model,
+        messages,
+        temperature: 0.2,
+        ...(options.maxTokens
+          ? { max_completion_tokens: options.maxTokens }
+          : {}),
+      };
+      try {
+        payload = await send({
+          ...renamed,
+          response_format: { type: 'json_object' },
+        });
+      } catch (retryError) {
+        if (!(retryError instanceof AiError) || retryError.status !== 400) {
+          throw retryError;
+        }
+        payload = await send(renamed);
+      }
     } else {
-      throw error;
+      payload = await send(body);
     }
   }
 
-  const content = (
-    payload as { choices?: Array<{ message?: { content?: unknown } }> }
-  )?.choices?.[0]?.message?.content;
+  const choice = (
+    payload as {
+      choices?: Array<{
+        finish_reason?: unknown;
+        message?: { content?: unknown };
+      }>;
+    }
+  )?.choices?.[0];
+  const content = choice?.message?.content;
   if (typeof content !== 'string' || !content.trim()) {
-    throw new AiError('模型没有返回内容');
+    throw new AiError(describeEmptyContent(choice?.finish_reason));
   }
   return content;
+}
+
+/** Explains an empty completion; reasoning models can spend the whole budget thinking. */
+function describeEmptyContent(finishReason: unknown): string {
+  if (finishReason === 'length') {
+    return '模型没有返回内容：输出在正式回答前就被截断（finish_reason=length），' +
+      '常见于推理模型把输出上限耗在思考阶段，可换非推理模型或调大输出上限';
+  }
+  return '模型没有返回内容';
 }
 
 /**

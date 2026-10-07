@@ -9,6 +9,7 @@ import { getTagUsage } from '@/db/queries/nav';
 import { attachTagsToBookmarks, attachTagsToBookmark, replaceBookmarkTags } from '@/db/queries/tags';
 import {
   chatCompletion,
+  COMPLETION_TOKEN_BUDGET,
   isTransientAiError,
   parseJsonObject,
 } from '@/lib/ai';
@@ -71,7 +72,7 @@ async function generateTagNames(
         ].join('\n'),
       },
     ],
-    { maxTokens: 300 },
+    { maxTokens: COMPLETION_TOKEN_BUDGET },
   );
 
   const parsed = tagsSchema.safeParse(parseJsonObject(raw));
