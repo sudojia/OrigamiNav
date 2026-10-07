@@ -123,6 +123,7 @@ export function SettingsForm({
     iconCustomTemplate: string | null;
     defaultTheme: string;
     cardColumns: number;
+    categoryPreviewCount: number;
     categoryDeleteMode: string;
     sessionMaxDays: number;
     loginRateLimit: number;
@@ -154,6 +155,9 @@ export function SettingsForm({
     isSkinId(settings.defaultTheme) ? settings.defaultTheme : 'blue',
   );
   const [cardColumns, setCardColumns] = useState(String(settings.cardColumns));
+  const [categoryPreviewCount, setCategoryPreviewCount] = useState(
+    String(settings.categoryPreviewCount),
+  );
   const [categoryDeleteMode, setCategoryDeleteMode] =
     useState<CategoryDeleteMode>(
       isCategoryDeleteMode(settings.categoryDeleteMode)
@@ -465,6 +469,11 @@ export function SettingsForm({
             <input type="hidden" name="cardColumns" value={cardColumns} />
             <input
               type="hidden"
+              name="categoryPreviewCount"
+              value={categoryPreviewCount}
+            />
+            <input
+              type="hidden"
               name="categoryDeleteMode"
               value={categoryDeleteMode}
             />
@@ -531,8 +540,10 @@ export function SettingsForm({
               active={activeTab === 'appearance'}
               defaultTheme={defaultTheme}
               cardColumns={cardColumns}
+              categoryPreviewCount={categoryPreviewCount}
               onThemeChange={setDefaultTheme}
               onCardColumnsChange={setCardColumns}
+              onCategoryPreviewCountChange={setCategoryPreviewCount}
             />
 
             <AiTab

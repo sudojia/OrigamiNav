@@ -10,6 +10,7 @@ import {
   clampSessionMaxDays,
   DEFAULT_SETTINGS,
   isCategoryDeleteMode,
+  isCategoryPreviewCount,
   isFaviconMode,
   isIconService,
   isSkinId,
@@ -34,6 +35,7 @@ export const SETTING_KEYS = {
   iconCustomTemplate: 'icon_custom_template',
   defaultTheme: 'default_theme',
   cardColumns: 'card_columns',
+  categoryPreviewCount: 'category_preview_count',
   categoryDeleteMode: 'category_delete_mode',
   aiBaseUrl: 'ai_base_url',
   aiModel: 'ai_model',
@@ -63,6 +65,13 @@ export function clampCardColumns(value: unknown): number {
     { min: CARD_COLUMNS_MIN, max: CARD_COLUMNS_MAX },
     DEFAULT_SETTINGS.cardColumns,
   );
+}
+
+/** Preset-listed value or the default; hand-edited rows snap back. */
+function parseCategoryPreviewCount(value: string | undefined): number {
+  return value !== undefined && isCategoryPreviewCount(value)
+    ? Number(value)
+    : DEFAULT_SETTINGS.categoryPreviewCount;
 }
 
 /** Site settings snapshot, memoized per request; defaults when unavailable. */
@@ -118,6 +127,9 @@ function settingsFromRows(
     defaultTheme: isSkinId(theme) ? theme : DEFAULT_SETTINGS.defaultTheme,
     cardColumns: clampCardColumns(
       map.get(SETTING_KEYS.cardColumns) ?? DEFAULT_SETTINGS.cardColumns,
+    ),
+    categoryPreviewCount: parseCategoryPreviewCount(
+      map.get(SETTING_KEYS.categoryPreviewCount),
     ),
     categoryDeleteMode: isCategoryDeleteMode(categoryDeleteMode)
       ? categoryDeleteMode

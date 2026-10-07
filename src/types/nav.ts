@@ -70,6 +70,8 @@ export type SiteSettings = {
   iconCustomTemplate: string | null;
   defaultTheme: SkinId;
   cardColumns: number;
+  /** Bookmarks shown per category on the public nav before "view all"; 0 = all. */
+  categoryPreviewCount: number;
   /** Behaviour when deleting a category that still holds bookmarks. */
   categoryDeleteMode: CategoryDeleteMode;
   /** Session cookie lifetime in days, admin-configurable. */
@@ -189,6 +191,16 @@ export function clampLoginRateLimit(value: unknown): number {
   return clampInt(value, LOGIN_RATE_LIMIT_BOUNDS, DEFAULT_LOGIN_RATE_LIMIT);
 }
 
+/** Preset per-category preview caps for the public nav; 0 shows everything. */
+export const CATEGORY_PREVIEW_COUNTS = [12, 24, 30, 48, 60, 0] as const;
+
+export function isCategoryPreviewCount(value: unknown): boolean {
+  if (typeof value === 'string' && value.trim() === '') return false;
+  return (CATEGORY_PREVIEW_COUNTS as readonly number[]).includes(
+    Number(value),
+  );
+}
+
 export const DEFAULT_SETTINGS: SiteSettings = {
   siteName: 'OrigamiNav',
   tagline: '把散落的书签折进一张纸',
@@ -201,6 +213,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   iconCustomTemplate: null,
   defaultTheme: 'blue',
   cardColumns: 5,
+  categoryPreviewCount: 30,
   categoryDeleteMode: 'protected',
   sessionMaxDays: DEFAULT_SESSION_MAX_DAYS,
   loginRateLimit: DEFAULT_LOGIN_RATE_LIMIT,

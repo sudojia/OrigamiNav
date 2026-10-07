@@ -1,8 +1,18 @@
 'use client';
 
-import { Github, Plus, Search, Settings2, XCircle, EyeOff } from 'lucide-react';
+import {
+  ArrowLeft,
+  ChevronRight,
+  EyeOff,
+  Github,
+  Plus,
+  Search,
+  Settings2,
+  XCircle,
+} from 'lucide-react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   useCallback,
   useDeferredValue,
@@ -76,10 +86,13 @@ export function NavClient({
   const [editing, setEditing] = useState<NavBookmark | null>(null);
   const [creating, setCreating] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  // Category pinned by the ?category= deep link (null = browse everything).
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
+  const router = useRouter();
 
   // Filtering runs against the deferred query: typing stays responsive while
   // the (memoized) card list updates at a lower priority.
@@ -99,6 +112,34 @@ export function NavClient({
     }
     return map;
   }, [filtered.categories]);
+
+  // ?category=<slug> deep link: read on mount and on back/forward; Link
+  // clicks set state directly, so no router subscription is needed.
+  useEffect(() => {
+    const sync = () =>
+      setSelectedSlug(
+        new URLSearchParams(window.location.search).get('category'),
+      );
+    sync();
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
+  /** Category pinned by ?category=; null when browsing everything. */
+  const selectedCategory = useMemo(
+    () =>
+      selectedSlug
+        ? (nav.categories.find((category) => category.slug === selectedSlug) ??
+          null)
+        : null,
+    [nav.categories, selectedSlug],
+  );
+
+  const shownCategories = selectedCategory
+    ? filtered.categories.filter(
+        (category) => category.id === selectedCategory.id,
+      )
+    : filtered.categories;
 
   /** Usage count per tag over the unfiltered payload. */
   const tagCounts = useMemo(() => {
@@ -180,13 +221,21 @@ export function NavClient({
     void import('@/components/admin/bookmark-form-dialog');
   }, [isAdmin]);
 
-  const scrollToCategory = useCallback((slug: string) => {
-    const el = sectionRefs.current.get(slug);
-    if (!el) return;
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
-    setActiveId(el.dataset.categoryId ?? null);
-  }, []);
+  const scrollToCategory = useCallback(
+    (slug: string) => {
+      const el = sectionRefs.current.get(slug);
+      // Category view renders one section; other jumps switch views instead.
+      if (!el) {
+        router.push(`/?category=${slug}`);
+        return;
+      }
+      const reduce = window.matchMedia('(prefers-reduced-motion: reduce)')
+        .matches;
+      el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+      setActiveId(el.dataset.categoryId ?? null);
+    },
+    [router],
+  );
 
   // ── Scroll-spy ─────────────────────────────────────────────────────────────
   // Tracks the active section from scroll position. Measurements are
@@ -508,14 +557,16 @@ export function NavClient({
 
       {/* ── Body ───────────────────────────────────────────────────────────── */}
       <div className="mx-auto flex max-w-7xl gap-8 px-4 py-8 sm:px-6">
-        <aside className="hidden w-48 shrink-0 lg:block">
-          <NavSidebar
-            categories={filtered.categories}
-            activeId={activeId}
-            onSelect={scrollToCategory}
-            counts={counts}
-          />
-        </aside>
+        {!selectedCategory ? (
+          <aside className="hidden w-48 shrink-0 lg:block">
+            <NavSidebar
+              categories={filtered.categories}
+              activeId={activeId}
+              onSelect={scrollToCategory}
+              counts={counts}
+            />
+          </aside>
+        ) : null}
 
         <main className="min-w-0 flex-1">
           <NavChipBar
@@ -555,6 +606,16 @@ export function NavClient({
             />
           ) : (
             <div className="space-y-10">
+              {selectedCategory ? (
+                <Link
+                  href="/"
+                  onClick={() => setSelectedSlug(null)}
+                  className="-mb-6 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ArrowLeft className="size-3.5" aria-hidden />
+                  返回全部
+                </Link>
+              ) : null}
               {searching ? (
                 <p className="text-xs text-muted-foreground" role="status">
                   找到 {filtered.matched} / {filtered.total} 个书签
@@ -562,56 +623,77 @@ export function NavClient({
                 </p>
               ) : null}
 
-              {filtered.categories.map((category) => (
-                <section
-                  key={category.id}
-                  id={category.slug}
-                  ref={registerSection}
-                  data-category-id={category.id}
-                >
-                  <div className="mb-3 flex items-baseline gap-2">
-                    <h2 className="font-display text-lg font-semibold tracking-tight">
-                      {category.name}
-                    </h2>
-                    {category.hidden ? (
-                      <EyeOff
-                        className="size-4 self-center text-muted-foreground"
-                        aria-label="私有分类"
-                      />
-                    ) : null}
-                    <span className="text-xs text-muted-foreground tabular-nums">
-                      {counts.get(category.id) ?? category.bookmarks.length}
-                    </span>
-                  </div>
-                  {category.description ? (
-                    <p className="mb-4 text-sm text-muted-foreground">
-                      {category.description}
-                    </p>
-                  ) : null}
-
-                  <div
-                    className="bookmark-grid"
-                    style={
-                      {
-                        '--card-columns': settings.cardColumns,
-                      } as React.CSSProperties
-                    }
+              {shownCategories.map((category) => {
+                // Browsing caps the preview (0 = unlimited); the pinned view
+                // and search always list all.
+                const cap = settings.categoryPreviewCount;
+                const capped =
+                  cap > 0 &&
+                  !searching &&
+                  !selectedCategory &&
+                  category.bookmarks.length > cap;
+                const visible = capped
+                  ? category.bookmarks.slice(0, cap)
+                  : category.bookmarks;
+                return (
+                  <section
+                    key={category.id}
+                    id={category.slug}
+                    ref={registerSection}
+                    data-category-id={category.id}
                   >
-                    {category.bookmarks.map((bookmark) => (
-                      <BookmarkCard
-                        key={bookmark.id}
-                        bookmark={bookmark}
-                        isAdmin={isAdmin}
-                        aiEnabled={settings.aiEnabled}
-                        onEdit={editBookmark}
-                        onDelete={setDeleting}
-                        onRetag={requestRetag}
-                        highlightRegex={highlightRegex}
-                      />
-                    ))}
-                  </div>
-                </section>
-              ))}
+                    <div className="mb-3 flex items-baseline gap-2">
+                      <h2 className="font-display text-lg font-semibold tracking-tight">
+                        {category.name}
+                      </h2>
+                      {category.hidden ? (
+                        <EyeOff
+                          className="size-4 self-center text-muted-foreground"
+                          aria-label="私有分类"
+                        />
+                      ) : null}
+                    </div>
+                    {category.description ? (
+                      <p className="mb-4 text-sm text-muted-foreground">
+                        {category.description}
+                      </p>
+                    ) : null}
+
+                    <div
+                      className="bookmark-grid"
+                      style={
+                        {
+                          '--card-columns': settings.cardColumns,
+                        } as React.CSSProperties
+                      }
+                    >
+                      {visible.map((bookmark) => (
+                        <BookmarkCard
+                          key={bookmark.id}
+                          bookmark={bookmark}
+                          isAdmin={isAdmin}
+                          aiEnabled={settings.aiEnabled}
+                          onEdit={editBookmark}
+                          onDelete={setDeleting}
+                          onRetag={requestRetag}
+                          highlightRegex={highlightRegex}
+                        />
+                      ))}
+                    </div>
+                    {capped ? (
+                      <Link
+                        href={`/?category=${category.slug}`}
+                        onClick={() => setSelectedSlug(category.slug)}
+                        className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                      >
+                        查看全部{' '}
+                        {category.bookmarks.length.toLocaleString('zh-CN')} 个
+                        <ChevronRight className="size-3.5" aria-hidden />
+                      </Link>
+                    ) : null}
+                  </section>
+                );
+              })}
             </div>
           )}
         </main>

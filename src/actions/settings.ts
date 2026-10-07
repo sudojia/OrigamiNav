@@ -41,6 +41,7 @@ import {
   clampAiTagMaxLen,
   clampLoginRateLimit,
   clampSessionMaxDays,
+  isCategoryPreviewCount,
 } from '@/types/nav';
 
 import type { ActionState } from './auth';
@@ -75,6 +76,10 @@ const settingsSchema = z
       .default(''),
     defaultTheme: z.enum(SKIN_IDS),
     cardColumns: z.coerce.number().int().min(1).max(8),
+    categoryPreviewCount: z.coerce
+      .number()
+      .int()
+      .refine(isCategoryPreviewCount, '请选择有效的展示数量'),
     categoryDeleteMode: z.enum(CATEGORY_DELETE_MODES),
     sessionMaxDays: z.coerce
       .number()
@@ -150,6 +155,7 @@ export async function updateSettingsAction(
     iconCustomTemplate: formData.get('iconCustomTemplate') ?? '',
     defaultTheme: formData.get('defaultTheme'),
     cardColumns: formData.get('cardColumns'),
+    categoryPreviewCount: formData.get('categoryPreviewCount'),
     categoryDeleteMode: formData.get('categoryDeleteMode') ?? 'protected',
     sessionMaxDays:
       formData.get('sessionMaxDays') ?? String(DEFAULT_SESSION_MAX_DAYS),
@@ -183,6 +189,9 @@ export async function updateSettingsAction(
       [SETTING_KEYS.defaultTheme]: parsed.data.defaultTheme,
       [SETTING_KEYS.cardColumns]: String(
         clampCardColumns(parsed.data.cardColumns),
+      ),
+      [SETTING_KEYS.categoryPreviewCount]: String(
+        parsed.data.categoryPreviewCount,
       ),
       [SETTING_KEYS.categoryDeleteMode]: parsed.data.categoryDeleteMode,
       [SETTING_KEYS.sessionMaxDays]: String(

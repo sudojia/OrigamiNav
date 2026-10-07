@@ -4,27 +4,39 @@ import { Check, LayoutGrid, Palette as PaletteIcon } from 'lucide-react';
 
 import { SKINS } from '@/lib/theme-skins';
 import { cn } from '@/lib/utils';
-import type { SkinId } from '@/types/nav';
+import {
+  CATEGORY_PREVIEW_COUNTS,
+  type SkinId,
+} from '@/types/nav';
 
 import { SettingsSelect } from '../form-primitives';
 import { FieldSection } from './field-section';
 
 const COLUMN_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
 
+const PREVIEW_OPTIONS = CATEGORY_PREVIEW_COUNTS.map((n) => ({
+  value: String(n),
+  label: n === 0 ? '不限制' : `每分类 ${n} 个`,
+}));
+
 export interface AppearanceTabProps {
   active: boolean;
   defaultTheme: SkinId;
   cardColumns: string;
+  categoryPreviewCount: string;
   onThemeChange: (value: SkinId) => void;
   onCardColumnsChange: (value: string) => void;
+  onCategoryPreviewCountChange: (value: string) => void;
 }
 
 export function AppearanceTab({
   active,
   defaultTheme,
   cardColumns,
+  categoryPreviewCount,
   onThemeChange,
   onCardColumnsChange,
+  onCategoryPreviewCountChange,
 }: AppearanceTabProps) {
   return (
     <div hidden={!active} role="tabpanel" aria-label="外观">
@@ -113,6 +125,20 @@ export function AppearanceTab({
               value: String(n),
               label: `每行 ${n} 列`,
             }))}
+            triggerClassName="w-full max-w-xs"
+          />
+        </FieldSection>
+
+        <FieldSection
+          divided
+          Icon={LayoutGrid}
+          title="分类展示数量"
+          description="前台每个分类默认展示的书签数量，超出部分折叠进「查看全部」链接；选择不限制则全部展示。"
+        >
+          <SettingsSelect
+            value={categoryPreviewCount}
+            onValueChange={onCategoryPreviewCountChange}
+            options={PREVIEW_OPTIONS}
             triggerClassName="w-full max-w-xs"
           />
         </FieldSection>
