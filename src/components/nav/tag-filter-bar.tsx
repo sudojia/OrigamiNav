@@ -1,7 +1,13 @@
 'use client';
 
 import { Check, Search, Tags, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,9 +19,11 @@ import {
 import { cn } from '@/lib/utils';
 import type { NavTag } from '@/types/nav';
 
-/** Single-row tag filter: selected tags, then a "+N" panel for the rest. */
+/** Single-row tag filter: as many chips as fit, then a "+N" panel for the rest. */
 
-const INLINE_LIMIT = 8;
+const CHIP_GAP = 6; // gap-1.5
+// First-pass reserve for the "+N" button before it has rendered to measure.
+const MORE_RESERVE = 44;
 
 export function TagFilterBar({
   tags,
@@ -32,6 +40,10 @@ export function TagFilterBar({
   onClear: () => void;
 }) {
   const [panelOpen, setPanelOpen] = useState(false);
+  const rowRef = useRef<HTMLDivElement>(null);
+  const moreRef = useRef<HTMLButtonElement>(null);
+  // Unselected chips rendered inline; the rest collapse into the "+N" panel.
+  const [fitCount, setFitCount] = useState(() => tags.length);
 
   const activeSet = useMemo(() => new Set(active), [active]);
   const selected = useMemo(
@@ -43,10 +55,50 @@ export function TagFilterBar({
     [tags, activeSet],
   );
 
+  const computeFit = useCallback(() => {
+    const row = rowRef.current;
+    if (!row) return;
+    const chips = row.querySelectorAll<HTMLElement>('[data-measure-chip]');
+    if (chips.length === 0) return;
+    const widths = Array.from(chips, (el) => el.getBoundingClientRect().width);
+
+    let avail = row.clientWidth;
+    const total =
+      widths.reduce((sum, w) => sum + w, 0) + CHIP_GAP * (widths.length - 1);
+    if (total > avail) {
+      const more =
+        moreRef.current?.getBoundingClientRect().width || MORE_RESERVE;
+      avail -= more + CHIP_GAP;
+    }
+
+    let acc = 0;
+    let fit = 0;
+    for (const [i, w] of widths.entries()) {
+      const need = acc + w + (i > 0 ? CHIP_GAP : 0);
+      if (i < selected.length) {
+        acc = need;
+        continue;
+      }
+      if (need > avail) break;
+      acc = need;
+      fit++;
+    }
+    setFitCount((prev) => (prev === fit ? prev : fit));
+  }, [selected]);
+
+  useLayoutEffect(() => {
+    computeFit();
+    const row = rowRef.current;
+    if (!row) return;
+    const observer = new ResizeObserver(computeFit);
+    observer.observe(row);
+    return () => observer.disconnect();
+  }, [computeFit]);
+
   if (tags.length === 0) return null;
 
-  const inline = unselected.slice(0, INLINE_LIMIT);
-  const overflowCount = tags.length - selected.length - inline.length;
+  const inline = unselected.slice(0, fitCount);
+  const overflowCount = unselected.length - inline.length;
 
   return (
     <div className="flex items-center gap-1.5">
@@ -55,7 +107,10 @@ export function TagFilterBar({
         className="ml-1 size-3.5 shrink-0 text-muted-foreground/70"
       />
 
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+      <div
+        ref={rowRef}
+        className="relative flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden"
+      >
         {selected.map((tag) => (
           <TagChip
             key={tag.id}
@@ -74,6 +129,22 @@ export function TagFilterBar({
             onToggle={onToggle}
           />
         ))}
+        {/* Invisible replica of the full row for measuring natural chip widths. */}
+        <div
+          aria-hidden
+          className="pointer-events-none invisible absolute top-0 left-0 flex w-max gap-1.5"
+        >
+          {[...selected, ...unselected].map((tag) => (
+            <TagChip
+              key={tag.id}
+              tag={tag}
+              count={counts.get(tag.id) ?? 0}
+              active={activeSet.has(tag.id)}
+              onToggle={onToggle}
+              measure
+            />
+          ))}
+        </div>
       </div>
 
       <div className="flex shrink-0 items-center gap-1">
@@ -81,6 +152,7 @@ export function TagFilterBar({
           <Popover open={panelOpen} onOpenChange={setPanelOpen}>
             <PopoverTrigger asChild>
               <button
+                ref={moreRef}
                 type="button"
                 aria-label={`展开全部 ${tags.length} 个标签`}
                 className={cn(
@@ -122,18 +194,22 @@ function TagChip({
   count,
   active,
   onToggle,
+  measure,
 }: {
   tag: NavTag;
   count: number;
   active: boolean;
   onToggle: (id: string) => void;
+  /** Rendered inside the measuring row: inert and excluded from a11y tree. */
+  measure?: boolean;
 }) {
   return (
     <button
-      key={tag.id}
       type="button"
       onClick={() => onToggle(tag.id)}
       aria-pressed={active}
+      tabIndex={measure ? -1 : undefined}
+      data-measure-chip={measure ? '' : undefined}
       className={cn(
         'inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs transition-colors',
         active
