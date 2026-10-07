@@ -573,7 +573,7 @@ export function AiTab({
           divided
           Icon={Tags}
           title="补打标签"
-          description="为没有标签的书签批量补打 AI 标签，每批 10 个，可连续点击直到清零。"
+          description="为没有标签的书签批量补打 AI 标签，每批 20 个，可连续点击直到清零。"
         >
           <div className="flex flex-wrap items-center gap-3">
             <Button

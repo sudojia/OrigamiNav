@@ -8,10 +8,20 @@ import { isAiProtocol, type AiProtocol } from '@/types/nav';
  */
 
 export class AiError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** HTTP status from the provider; 0 for transport/timeout/parse failures. */
+    readonly status = 0,
+  ) {
     super(message);
     this.name = 'AiError';
   }
+}
+
+/** True for failures worth one retry: transport, timeout, 429 and provider 5xx. */
+export function isTransientAiError(error: unknown): boolean {
+  if (!(error instanceof AiError)) return false;
+  return error.status === 0 || error.status === 429 || error.status >= 500;
 }
 
 const TIMEOUT_MS = 20_000;
@@ -91,7 +101,7 @@ async function requestJson(
     throw new AiError(`无法连接：${reason}`);
   }
   if (!response.ok) {
-    throw new AiError(await describeFailure(response, protocol));
+    throw new AiError(await describeFailure(response, protocol), response.status);
   }
   try {
     return await response.json();
@@ -183,8 +193,7 @@ async function openAiCompletion(
   try {
     payload = await send(true);
   } catch (error) {
-    const message = error instanceof Error ? error.message : '';
-    if (error instanceof AiError && message.includes('400')) {
+    if (error instanceof AiError && error.status === 400) {
       payload = await send(false);
     } else {
       throw error;

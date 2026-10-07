@@ -7,7 +7,11 @@ import { getAiConfig, type AiConfig } from '@/db/queries/ai';
 import { getSiteSettings } from '@/db/queries/settings';
 import { getTagUsage } from '@/db/queries/nav';
 import { attachTagsToBookmarks, attachTagsToBookmark, replaceBookmarkTags } from '@/db/queries/tags';
-import { chatCompletion, parseJsonObject } from '@/lib/ai';
+import {
+  chatCompletion,
+  isTransientAiError,
+  parseJsonObject,
+} from '@/lib/ai';
 import { revalidateSite } from '@/lib/revalidate';
 import { LIMITS } from '@/lib/validation';
 import { clampAiConcurrency } from '@/types/nav';
@@ -90,15 +94,18 @@ async function generateTagNames(
 
 // ─── Concurrency queue ──────────────────────────────────────────────────────
 //
-// In-process FIFO semaphore; the limit is re-read per call so the admin's
-// aiConcurrency change applies without a restart.
+// In-process FIFO semaphore; the limit is read once per tagging job, so a
+// long batch keeps the value it started with.
 
 let active = 0;
 const waiters: Array<() => void> = [];
 
-async function acquire(): Promise<void> {
-  const settings = await getSiteSettings();
-  const limit = clampAiConcurrency(settings.aiConcurrency);
+/** Concurrency limit for one tagging job; clamped to the configured bounds. */
+async function getConcurrencyLimit(): Promise<number> {
+  return clampAiConcurrency((await getSiteSettings()).aiConcurrency);
+}
+
+async function acquire(limit: number): Promise<void> {
   if (active < limit) {
     active += 1;
     return;
@@ -114,8 +121,8 @@ function release(): void {
 }
 
 /** Runs one provider-bound task through the queue. */
-async function withQueue<T>(task: () => Promise<T>): Promise<T> {
-  await acquire();
+async function withQueue<T>(task: () => Promise<T>, limit: number): Promise<T> {
+  await acquire(limit);
   try {
     return await task();
   } finally {
@@ -139,6 +146,28 @@ async function generateNames(
   return generateTagNames(config, page, existingTags);
 }
 
+const TRANSIENT_RETRY_DELAY_MS = 2_000;
+
+/**
+ * Provider failures classified transient (429, 5xx, transport, timeout) get
+ * one backoff retry, so raised concurrency sheds into delays instead of
+ * dropped tags. The backoff runs while holding the queue slot, which also
+ * throttles sibling tasks against the same provider.
+ */
+async function generateNamesWithRetry(
+  config: AiConfig,
+  page: { url: string; title?: string; description?: string },
+  existingTags: string[],
+): Promise<string[]> {
+  try {
+    return await generateNames(config, page, existingTags);
+  } catch (error) {
+    if (!isTransientAiError(error)) throw error;
+    await sleep(TRANSIENT_RETRY_DELAY_MS);
+    return generateNames(config, page, existingTags);
+  }
+}
+
 /**
  * Generates and attaches tags for one bookmark through the concurrency
  * queue, retrying once on failure (provider rate limits, transient
@@ -152,10 +181,16 @@ export async function generateTagsWithQueue(
   page: { url: string; title?: string; description?: string },
   options: { topTags?: string[]; replace?: boolean } = {},
 ): Promise<boolean> {
-  // Read outside the queue slot: the tag context is a database round trip, not
-  // provider work, so it must not hold a concurrency slot.
-  const existingTags = options.topTags ?? (await getTopTagNames());
-  const names = await withQueue(() => generateNames(config, page, existingTags));
+  // Read outside the queue slot: the tag context and limit are database round
+  // trips, not provider work, so they must not hold a concurrency slot.
+  const [existingTags, limit] = await Promise.all([
+    options.topTags ?? getTopTagNames(),
+    getConcurrencyLimit(),
+  ]);
+  const names = await withQueue(
+    () => generateNamesWithRetry(config, page, existingTags),
+    limit,
+  );
   if (names.length === 0) return false;
 
   if (options.replace) await replaceBookmarkTags(bookmarkId, names);
@@ -180,17 +215,35 @@ export async function generateTagsForBatch(
 ): Promise<number> {
   if (!targets.length) return 0;
 
-  const existingTags = await getTopTagNames();
-  const generated = await Promise.all(
-    targets.map(async (target) => ({
-      bookmarkId: target.id,
-      names: await withQueue(() => generateNames(config, target, existingTags)),
-    })),
-  );
+  const [existingTags, limit] = await Promise.all([
+    getTopTagNames(),
+    getConcurrencyLimit(),
+  ]);
 
-  return attachTagsToBookmarks(
-    generated.filter((entry) => entry.names.length > 0),
-  );
+  // Best-effort per target: one provider failure must not drop the rest.
+  const generated = (
+    await Promise.all(
+      targets.map(async (target) => {
+        try {
+          return {
+            bookmarkId: target.id,
+            names: await withQueue(
+              () => generateNamesWithRetry(config, target, existingTags),
+              limit,
+            ),
+          };
+        } catch (error) {
+          console.error(
+            `[origaminav] ai tagging failed for bookmark ${target.id}`,
+            error,
+          );
+          return null;
+        }
+      }),
+    )
+  ).flatMap((entry) => (entry && entry.names.length > 0 ? [entry] : []));
+
+  return attachTagsToBookmarks(generated);
 }
 
 /**
@@ -208,8 +261,12 @@ export function queueAiTagGeneration(
       if (!config) return;
       const ok = await generateTagsWithQueue(config, bookmarkId, page);
       if (ok) revalidateSite();
-    } catch {
+    } catch (error) {
       // Best-effort background job; failures leave the bookmark untagged.
+      console.error(
+        `[origaminav] background ai tagging failed for bookmark ${bookmarkId}`,
+        error,
+      );
     }
   });
 }

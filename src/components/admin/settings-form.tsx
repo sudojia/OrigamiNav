@@ -344,6 +344,9 @@ export function SettingsForm({
       } else {
         toast.error(result.message);
       }
+    } catch (error) {
+      console.error('[origaminav] batch retag request failed', error);
+      toast.error('批量补打标签请求失败，请检查网络后重试');
     } finally {
       setBatchRunning(false);
     }

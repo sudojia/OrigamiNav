@@ -166,8 +166,8 @@ export function clampAiTagMaxLen(value: unknown): number {
 }
 
 /** Bounds and default for concurrent AI tag-generation requests. */
-export const AI_CONCURRENCY_BOUNDS = { min: 1, max: 10 } as const;
-export const DEFAULT_AI_CONCURRENCY = 3;
+export const AI_CONCURRENCY_BOUNDS = { min: 1, max: 16 } as const;
+export const DEFAULT_AI_CONCURRENCY = 8;
 
 export function clampAiConcurrency(value: unknown): number {
   return clampInt(value, AI_CONCURRENCY_BOUNDS, DEFAULT_AI_CONCURRENCY);

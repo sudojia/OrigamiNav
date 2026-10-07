@@ -108,14 +108,20 @@ export async function aiTagUntaggedBatchAction(): Promise<BatchRetagResult> {
     return { ok: false, message: '请先配置 AI 服务', remaining: -1 };
   }
 
-  const batch = await listUntaggedBookmarks(10);
+  const batch = await listUntaggedBookmarks(20);
   if (batch.length === 0) {
     return { ok: true, message: '没有需要补打标签的书签', remaining: 0 };
   }
 
   // One shared tag context and concurrent provider calls, bounded by the
   // admin's aiConcurrency inside the queue.
-  const tagged = await generateTagsForBatch(config, batch);
+  let tagged: number;
+  try {
+    tagged = await generateTagsForBatch(config, batch);
+  } catch (error) {
+    console.error(`[origaminav] ai batch tagging failed`, error);
+    return { ok: false, message: aiMessage(error), remaining: -1 };
+  }
   if (tagged > 0) revalidateSite();
 
   const remaining = await countUntaggedBookmarks();
@@ -209,17 +215,26 @@ export async function aiTagBookmarkAction(
   const bookmark = await getBookmarkById(id);
   if (!bookmark) return { ok: false, message: '书签不存在或已被删除' };
 
-  const ok = await generateTagsWithQueue(
-    config,
-    bookmark.id,
-    {
-      url: bookmark.url,
-      title: bookmark.title,
-      description: bookmark.description,
-    },
-    { replace: true },
-  );
-  if (!ok) return { ok: false, message: 'AI 没有返回标签，请稍后重试' };
+  try {
+    const ok = await generateTagsWithQueue(
+      config,
+      bookmark.id,
+      {
+        url: bookmark.url,
+        title: bookmark.title,
+        description: bookmark.description,
+      },
+      { replace: true },
+    );
+    if (!ok) {
+      // Model replied but produced no usable tags after the retry.
+      console.warn(`[origaminav] ai retag: no usable tags for bookmark ${bookmark.id}`);
+      return { ok: false, message: 'AI 没有返回标签，请检查模型与提示词后重试' };
+    }
+  } catch (error) {
+    console.error(`[origaminav] ai retag failed for bookmark ${bookmark.id}`, error);
+    return { ok: false, message: aiMessage(error) };
+  }
 
   revalidateSite();
   return { ok: true, message: '已重打标签' };

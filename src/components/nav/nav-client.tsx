@@ -34,7 +34,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { buildHighlightRegex, filterNav, tokenize } from '@/lib/filter';
 import { PROJECT_START_YEAR, PROJECT_URL } from '@/lib/project-links';
-import { cn } from '@/lib/utils';
+import { cn, truncate } from '@/lib/utils';
 import type { NavBookmark, NavData, SiteSettings } from '@/types/nav';
 
 /**
@@ -356,7 +356,9 @@ export function NavClient({
   const runRetag = useCallback(
     async (bookmark: NavBookmark) => {
       setRetagBusy(true);
-      const toastId = toast.loading('正在重打标签…');
+      const toastId = toast.loading(
+        `正在为「${truncate(bookmark.title, 24)}」重打标签…`,
+      );
       try {
         const result = await aiTagBookmarkAction(bookmark.id);
         if (result.ok) {
@@ -365,6 +367,10 @@ export function NavClient({
         } else {
           toast.error(result.message, { id: toastId });
         }
+      } catch (error) {
+        // Server actions reject on transport errors; keep the toast dismissible.
+        console.error('[origaminav] retag request failed', error);
+        toast.error('重打标签请求失败，请检查网络后重试', { id: toastId });
       } finally {
         setRetagBusy(false);
         setRetagging(null);
