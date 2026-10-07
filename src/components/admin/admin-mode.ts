@@ -6,11 +6,11 @@ export const ADMIN_MODE_EVENT = 'origaminav:admin-mode';
 
 export function readAdminMode(): 'dark' | 'light' {
   try {
-    return localStorage.getItem(ADMIN_MODE_STORAGE_KEY) === 'light'
-      ? 'light'
-      : 'dark';
+    return localStorage.getItem(ADMIN_MODE_STORAGE_KEY) === 'dark'
+      ? 'dark'
+      : 'light';
   } catch {
-    return 'dark';
+    return 'light';
   }
 }
 
@@ -23,12 +23,12 @@ function subscribeToAdminMode(onChange: () => void) {
   };
 }
 
-/** Reads the admin's own light/dark mode. Defaults to dark. */
+/** Reads the admin's own light/dark mode. Defaults to light. */
 export function useAdminMode(): 'dark' | 'light' {
   return useSyncExternalStore(
     subscribeToAdminMode,
     readAdminMode,
-    () => 'dark' as const,
+    () => 'light' as const,
   );
 }
 

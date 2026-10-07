@@ -19,9 +19,9 @@ export function buildAdminModeInitScript(forceDark = false): string {
     );
   }
   return (
-    `(function(){var m='dark';try{m=localStorage.getItem('origaminav.admin-mode')||'dark';}catch(e){}` +
+    `(function(){var m='dark';try{m=localStorage.getItem('origaminav.admin-mode')||'light';}catch(e){}` +
     `var el=document.currentScript&&document.currentScript.parentElement;if(!el)return;` +
     `el.classList.remove('dark','light');` +
-    `el.classList.add(m==='light'?'light':'dark');})();`
+    `el.classList.add(m==='dark'?'dark':'light');})();`
   );
 }
