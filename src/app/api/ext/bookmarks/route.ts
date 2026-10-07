@@ -1,8 +1,7 @@
 import { z } from 'zod';
 
 import { createBookmark, getBookmarkByUrl } from '@/db/queries/bookmarks';
-import { getCategoryById } from '@/db/queries/categories';
-import { errorMessage } from '@/db/client';
+import { errorMessage, pgErrorCode } from '@/db/client';
 import { extJson, extPreflight, verifyExtToken } from '@/lib/ext-api';
 import { queueAiTagGeneration } from '@/lib/ai-tags';
 import { revalidateSite } from '@/lib/revalidate';
@@ -62,16 +61,7 @@ export async function POST(request: Request) {
   }
   const input = parsed.data;
 
-  const [category, existing] = await Promise.all([
-    getCategoryById(input.categoryId),
-    input.force ? Promise.resolve(null) : getBookmarkByUrl(input.url),
-  ]);
-  if (!category) {
-    return extJson(
-      { ok: false, message: '分类不存在，请刷新后重新选择' },
-      { status: 400 },
-    );
-  }
+  const existing = input.force ? null : await getBookmarkByUrl(input.url);
   if (existing) {
     return extJson({ ok: false, code: 'duplicate', existing }, { status: 409 });
   }
@@ -96,6 +86,13 @@ export async function POST(request: Request) {
     revalidateSite();
     return extJson({ ok: true, id: created.id }, { status: 201 });
   } catch (error) {
+    // 23503 FK violation: category deleted since the popup loaded.
+    if (pgErrorCode(error) === '23503') {
+      return extJson(
+        { ok: false, message: '分类不存在，请刷新后重新选择' },
+        { status: 400 },
+      );
+    }
     return extJson(
       { ok: false, message: `创建失败：${errorMessage(error)}` },
       { status: 500 },

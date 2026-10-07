@@ -38,13 +38,30 @@ function secretsMatch(a: string, b: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right);
 }
 
+/** Short-lived cache of the stored ext token; saves a DB round trip per
+ * /api/ext/* request. Settings actions clear it on rotation. */
+let cachedExtToken: { value: string | null; expiresAt: number } | null = null;
+const EXT_TOKEN_CACHE_TTL_MS = 30_000;
+
+/** Drops the cached token; next verify re-reads the secrets table. */
+export function invalidateExtTokenCache(): void {
+  cachedExtToken = null;
+}
+
 /** Validates `Authorization: Bearer`; false when no token is configured. */
 export async function verifyExtToken(request: Request): Promise<boolean> {
   const header = request.headers.get('authorization') ?? '';
   const token = /^Bearer\s+(\S+)$/i.exec(header)?.[1];
   if (!token) return false;
 
-  const stored = await getSecretValue(SECRET_KEYS.extToken);
+  const now = Date.now();
+  if (!cachedExtToken || cachedExtToken.expiresAt < now) {
+    cachedExtToken = {
+      value: await getSecretValue(SECRET_KEYS.extToken),
+      expiresAt: now + EXT_TOKEN_CACHE_TTL_MS,
+    };
+  }
+  const stored = cachedExtToken.value;
   if (!stored) return false;
   return secretsMatch(token, stored);
 }

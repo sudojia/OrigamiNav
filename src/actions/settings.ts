@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { guardAction } from '@/lib/action-guard';
 import { errorMessage } from '@/db/client';
+import { invalidateExtTokenCache } from '@/lib/ext-api';
 import {
   clampCardColumns,
   deleteSecret,
@@ -254,6 +255,7 @@ export async function generateExtTokenAction(): Promise<ExtTokenState> {
   const token = `${EXT_TOKEN_PREFIX}${randomBytes(EXT_TOKEN_BYTES).toString('base64url')}`;
   try {
     await setSecret(SECRET_KEYS.extToken, token);
+    invalidateExtTokenCache();
   } catch (error) {
     return { ok: false, message: `生成失败：${errorMessage(error)}` };
   }
@@ -267,6 +269,7 @@ export async function revokeExtTokenAction(): Promise<ExtTokenState> {
 
   try {
     await deleteSecret(SECRET_KEYS.extToken);
+    invalidateExtTokenCache();
   } catch (error) {
     return { ok: false, message: `吊销失败：${errorMessage(error)}` };
   }

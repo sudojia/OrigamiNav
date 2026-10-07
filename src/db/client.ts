@@ -17,7 +17,9 @@ function buildPoolConfig(connectionString: string): pg.PoolConfig {
   return {
     connectionString,
     max: 5,
-    idleTimeoutMillis: 30_000,
+    // Keep idle connections warm; a cold reconnect to a remote DB
+    // costs TCP + TLS + auth round trips.
+    idleTimeoutMillis: 300_000,
     connectionTimeoutMillis: 10_000,
     // Lets the process exit with idle connections still open.
     allowExitOnIdle: true,
@@ -140,4 +142,17 @@ function rootCauseMessage(error: unknown): string {
 
 export function errorMessage(error: unknown): string {
   return rootCauseMessage(error);
+}
+
+/** Postgres error code (e.g. "23503" FK violation) from the error chain. */
+export function pgErrorCode(error: unknown): string | null {
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (current instanceof Error && !seen.has(current)) {
+    seen.add(current);
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string') return code;
+    current = current.cause;
+  }
+  return null;
 }
