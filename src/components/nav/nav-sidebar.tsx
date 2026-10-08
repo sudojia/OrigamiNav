@@ -1,24 +1,27 @@
 'use client';
 
 import { colorSwatchClass } from '@/lib/category-color';
+import { categoryHref } from '@/lib/nav-links';
 import { cn } from '@/lib/utils';
 import type { NavCategory } from '@/types/nav';
 
-/** Sticky category rail for wide screens; scroll-spy state lives in the parent. */
+/**
+ * Sticky category rail for wide screens; scroll-spy state lives in the parent.
+ * Entries always carry the category page URL, so crawlers can reach every
+ * category from the nav page even though a click there scrolls in place.
+ */
 export function NavSidebar({
   categories,
   activeId,
   onSelect,
   counts,
-  hrefFor,
 }: {
   categories: NavCategory[];
   activeId: string | null;
-  onSelect: (slug: string) => void;
+  /** Set when a click should scroll to the in-page section instead of navigating. */
+  onSelect?: (slug: string) => void;
   /** Visible count after filtering. */
   counts: Map<string, number>;
-  /** Set on a pinned view: entries become links to category pages. */
-  hrefFor?: (category: NavCategory) => string;
 }) {
   return (
     <nav
@@ -35,14 +38,14 @@ export function NavSidebar({
           return (
             <li key={category.id}>
               <a
-                href={hrefFor ? hrefFor(category) : `#${category.slug}`}
+                href={categoryHref(category)}
                 onClick={
-                  hrefFor
-                    ? undefined
-                    : (event) => {
+                  onSelect
+                    ? (event) => {
                         event.preventDefault();
                         onSelect(category.slug);
                       }
+                    : undefined
                 }
                 aria-current={active ? 'true' : undefined}
                 className={cn(
@@ -84,13 +87,11 @@ export function NavChipBar({
   categories,
   activeId,
   onSelect,
-  hrefFor,
 }: {
   categories: NavCategory[];
   activeId: string | null;
-  onSelect: (slug: string) => void;
-  /** Set on a pinned view: entries become links to category pages. */
-  hrefFor?: (category: NavCategory) => string;
+  /** Set when a click should scroll to the in-page section instead of navigating. */
+  onSelect?: (slug: string) => void;
 }) {
   return (
     <nav
@@ -103,14 +104,14 @@ export function NavChipBar({
           return (
             <li key={category.id} className="shrink-0">
               <a
-                href={hrefFor ? hrefFor(category) : `#${category.slug}`}
+                href={categoryHref(category)}
                 onClick={
-                  hrefFor
-                    ? undefined
-                    : (event) => {
+                  onSelect
+                    ? (event) => {
                         event.preventDefault();
                         onSelect(category.slug);
                       }
+                    : undefined
                 }
                 aria-current={active ? 'true' : undefined}
                 className={cn(

@@ -4,14 +4,14 @@ import { notFound } from 'next/navigation';
 import { AnalyticsScripts } from '@/components/analytics/analytics-scripts';
 import { BootstrapRedirect } from '@/components/auth/bootstrap-redirect';
 import { NavShell } from '@/components/nav/nav-shell';
-import { CategoryJsonLd } from '@/components/seo/json-ld';
+import { BreadcrumbJsonLd, CategoryJsonLd } from '@/components/seo/json-ld';
 import {
   getCategoryBySlug,
   listVisibleCategorySlugs,
 } from '@/db/queries/categories';
 import { getNavData } from '@/db/queries/nav';
 import { getSiteSettings } from '@/db/queries/settings';
-import { pageSocialMetadata, siteTitle } from '@/lib/seo';
+import { categoryDescription, pageSocialMetadata } from '@/lib/seo';
 
 // Category pages are content, not user state: same ISR window as the nav page.
 export const revalidate = 300;
@@ -41,9 +41,16 @@ export async function generateMetadata({
     return { title: '分类不存在', robots: { index: false, follow: false } };
   }
 
-  const description =
-    category.description ||
-    `${siteTitle(settings)} 的「${category.name}」分类书签导航`;
+  // A category whose bookmarks are all hidden has nothing to index; it is also
+  // kept out of the sitemap, so the two never disagree.
+  if (category.visibleBookmarks === 0) {
+    return {
+      title: category.name,
+      robots: { index: false, follow: false },
+    };
+  }
+
+  const description = categoryDescription(settings, category);
 
   return {
     title: category.name,
@@ -78,6 +85,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
   return (
     <>
       <CategoryJsonLd settings={settings} category={category} />
+      <BreadcrumbJsonLd settings={settings} category={category} />
       <AnalyticsScripts settings={settings} />
       <NavShell nav={nav} settings={settings} pinnedSlug={slug} />
     </>

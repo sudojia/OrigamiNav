@@ -467,9 +467,17 @@ export function NavClient({
             <div className="flex min-w-0 items-center gap-2.5">
               <BrandMark logoUrl={settings.logoUrl} />
               <div className="min-w-0">
-                <h1 className="truncate font-display text-base leading-tight font-semibold">
-                  {settings.siteName}
-                </h1>
+                {/* A category page's h1 is the category name, so the site name
+                    drops to plain text there. */}
+                {pinnedSlug ? (
+                  <p className="truncate font-display text-base leading-tight font-semibold">
+                    {settings.siteName}
+                  </p>
+                ) : (
+                  <h1 className="truncate font-display text-base leading-tight font-semibold">
+                    {settings.siteName}
+                  </h1>
+                )}
                 {settings.tagline ? (
                   <p className="truncate text-xs text-muted-foreground">
                     {settings.tagline}
@@ -565,13 +573,13 @@ export function NavClient({
       {/* ── Body ───────────────────────────────────────────────────────────── */}
       <div className="mx-auto flex max-w-7xl gap-8 px-4 py-8 sm:px-6">
         <aside className="hidden w-48 shrink-0 lg:block">
+          {/* On the nav page a click scrolls in place; on a category page there
+              is no section for the other categories, so the link navigates. */}
           <NavSidebar
             categories={filtered.categories}
             activeId={activeId}
-            onSelect={scrollToCategory}
+            onSelect={pinnedSlug ? undefined : scrollToCategory}
             counts={counts}
-            // A pinned view has no in-page section for the other categories.
-            hrefFor={pinnedSlug ? categoryHref : undefined}
           />
         </aside>
 
@@ -579,8 +587,7 @@ export function NavClient({
           <NavChipBar
             categories={filtered.categories}
             activeId={activeId}
-            onSelect={scrollToCategory}
-            hrefFor={pinnedSlug ? categoryHref : undefined}
+            onSelect={pinnedSlug ? undefined : scrollToCategory}
           />
 
           {!nav.available ? (
@@ -592,6 +599,11 @@ export function NavClient({
             <Notice
               title="还没有任何书签"
               body="登录后台添加分类和书签。"
+            />
+          ) : selectedCategory && selectedCategory.bookmarks.length === 0 ? (
+            <Notice
+              title="这个分类还没有公开书签"
+              body="它下面的书签都被设为私有，或还没有添加书签。"
             />
           ) : filtered.categories.length === 0 ? (
             <Notice
@@ -651,9 +663,16 @@ export function NavClient({
                     data-category-id={category.id}
                   >
                     <div className="mb-3 flex items-baseline gap-2">
-                      <h2 className="font-display text-lg font-semibold tracking-tight">
-                        {category.name}
-                      </h2>
+                      {/* A category page's single h1 is its own category name. */}
+                      {pinnedSlug ? (
+                        <h1 className="font-display text-lg font-semibold tracking-tight">
+                          {category.name}
+                        </h1>
+                      ) : (
+                        <h2 className="font-display text-lg font-semibold tracking-tight">
+                          {category.name}
+                        </h2>
+                      )}
                       {category.hidden ? (
                         <EyeOff
                           className="size-4 self-center text-muted-foreground"
@@ -681,6 +700,7 @@ export function NavClient({
                           bookmark={bookmark}
                           isAdmin={isAdmin}
                           aiEnabled={settings.aiEnabled}
+                          headingLevel={pinnedSlug ? 'h2' : 'h3'}
                           onEdit={editBookmark}
                           onDelete={setDeleting}
                           onRetag={requestRetag}
@@ -700,7 +720,7 @@ export function NavClient({
                         }
                         className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
                       >
-                        查看全部{' '}
+                        查看「{category.name}」全部{' '}
                         {category.bookmarks.length.toLocaleString('zh-CN')} 个
                         <ChevronRight className="size-3.5" aria-hidden />
                       </Link>

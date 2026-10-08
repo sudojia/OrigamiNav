@@ -3,6 +3,7 @@ import 'server-only';
 import type { Metadata } from 'next';
 
 import { VERIFICATION_TARGETS, type SiteSettings } from '@/types/nav';
+import { truncate } from '@/lib/utils';
 
 /** Site-level SEO metadata shared by the layout, the home page and category pages. */
 
@@ -55,6 +56,18 @@ export function siteTitle(settings: SiteSettings): string {
 /** Meta description fallback chain shared by every public page. */
 export function siteDescription(settings: SiteSettings): string {
   return settings.description || settings.tagline || FALLBACK_DESCRIPTION;
+}
+
+/** Description of one category page: the admin's own text, else a template. */
+export function categoryDescription(
+  settings: SiteSettings,
+  category: { name: string; description: string },
+): string {
+  if (category.description) return category.description;
+  const fallback = `${siteTitle(settings)} 的「${category.name}」分类书签导航`;
+  return settings.description
+    ? `${fallback}。${truncate(settings.description, 100)}`
+    : fallback;
 }
 
 /**

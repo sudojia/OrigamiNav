@@ -55,8 +55,9 @@ export async function generateMetadata(): Promise<Metadata> {
     applicationName: title,
     keywords: ['书签', '导航', 'bookmark', 'navigation', 'self-hosted'],
     icons: faviconHref ? { icon: faviconHref, shortcut: faviconHref } : undefined,
+    // Large image previews are the recommended default for the public pages.
     robots: settings.seoIndexing
-      ? { index: true, follow: true }
+      ? { index: true, follow: true, 'max-image-preview': 'large' }
       : { index: false, follow: false },
     verification: verificationMetadata(settings),
     openGraph: social.openGraph,

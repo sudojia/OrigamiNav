@@ -1,4 +1,9 @@
-import { absoluteSiteUrl, siteDescription, siteTitle } from '@/lib/seo';
+import {
+  absoluteSiteUrl,
+  categoryDescription,
+  siteDescription,
+  siteTitle,
+} from '@/lib/seo';
 import type { NavCategory, SiteSettings } from '@/types/nav';
 
 /** Structured data blocks; native script tags per the Next.js JSON-LD guide. */
@@ -60,9 +65,7 @@ export function CategoryJsonLd({
         '@context': 'https://schema.org',
         '@type': 'CollectionPage',
         name: category.name,
-        description:
-          category.description ||
-          `${siteTitle(settings)} 的「${category.name}」分类书签导航`,
+        description: categoryDescription(settings, category),
         url,
         inLanguage: 'zh-CN',
         isPartOf: {
@@ -82,6 +85,35 @@ export function CategoryJsonLd({
               url: bookmark.url,
             })),
         },
+      }}
+    />
+  );
+}
+
+/** Home > category trail, matching the back link the page renders. */
+export function BreadcrumbJsonLd({
+  settings,
+  category,
+}: {
+  settings: SiteSettings;
+  category: NavCategory;
+}) {
+  const home = absoluteSiteUrl(settings, '/');
+  const url = absoluteSiteUrl(
+    settings,
+    `/c/${encodeURIComponent(category.slug)}`,
+  );
+  if (!home || !url) return null;
+
+  return (
+    <JsonLdScript
+      data={{
+        '@context': 'https://schema.org',
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: siteTitle(settings), item: home },
+          { '@type': 'ListItem', position: 2, name: category.name, item: url },
+        ],
       }}
     />
   );

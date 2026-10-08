@@ -40,28 +40,45 @@ export async function listCategoriesWithCounts(): Promise<CategoryWithCount[]> {
   );
 }
 
+/** A category plus how many of its bookmarks are visible to the public. */
+export type CategoryWithPublicCount = Category & { visibleBookmarks: number };
+
 /**
  * Finds a category by its URL slug; memoized per request so a category page and
  * its metadata share one query.
  */
 export const getCategoryBySlug = cache(
-  async function getCategoryBySlug(slug: string): Promise<Category | null> {
+  async function getCategoryBySlug(
+    slug: string,
+  ): Promise<CategoryWithPublicCount | null> {
     return safeQuery(
       'getCategoryBySlug',
       async (database) => {
         const rows = await database
-          .select()
+          .select({
+            category: categories,
+            // A left join keeps a category with no bookmarks in the result.
+            visibleBookmarks:
+              sql<number>`count(*) filter (where ${bookmarks.hidden} = false)::int`,
+          })
           .from(categories)
+          .leftJoin(bookmarks, eq(bookmarks.categoryId, categories.id))
           .where(eq(categories.slug, slug))
+          .groupBy(categories.id)
           .limit(1);
-        return rows[0] ?? null;
+        const row = rows[0];
+        return row ? { ...row.category, visibleBookmarks: row.visibleBookmarks } : null;
       },
       null,
     );
   },
 );
 
-/** Slugs of public categories with their update times, for the sitemap and pushes. */
+/**
+ * Slugs of categories that actually have public content, for the sitemap, the
+ * prerender list and search-engine pushes; a category whose bookmarks are all
+ * hidden has nothing to index.
+ */
 export async function listVisibleCategorySlugs(): Promise<
   Array<{ slug: string; updatedAt: string }>
 > {
@@ -71,7 +88,9 @@ export async function listVisibleCategorySlugs(): Promise<
       database
         .select({ slug: categories.slug, updatedAt: categories.updatedAt })
         .from(categories)
-        .where(eq(categories.hidden, false))
+        .innerJoin(bookmarks, eq(bookmarks.categoryId, categories.id))
+        .where(and(eq(categories.hidden, false), eq(bookmarks.hidden, false)))
+        .groupBy(categories.id, categories.slug, categories.updatedAt, categories.sortOrder)
         .orderBy(asc(categories.sortOrder)),
     [],
   );

@@ -26,6 +26,7 @@ function BookmarkCardImpl({
   onDelete,
   onRetag,
   highlightRegex,
+  headingLevel = 'h3',
 }: {
   bookmark: NavBookmark;
   isAdmin: boolean;
@@ -35,6 +36,8 @@ function BookmarkCardImpl({
   onDelete?: (bookmark: NavBookmark) => void;
   onRetag?: (bookmark: NavBookmark) => void;
   highlightRegex?: RegExp | null;
+  /** A category page titles the list with its own h1, so cards step down to h2. */
+  headingLevel?: 'h2' | 'h3';
 }) {
   const card = (
     <a
@@ -58,17 +61,15 @@ function BookmarkCardImpl({
           className="size-8"
         />
         <div className="min-w-0 flex-1">
-          <h3 className="flex items-center gap-1.5 truncate text-sm font-medium text-card-foreground">
-            <span className="truncate">
-              <Highlighted text={bookmark.title} regex={highlightRegex} />
-            </span>
-            {bookmark.hidden ? (
-              <EyeOff
-                className="size-3.5 shrink-0 text-muted-foreground"
-                aria-label="私有"
-              />
-            ) : null}
-          </h3>
+          {headingLevel === 'h2' ? (
+            <h2 className="flex items-center gap-1.5 truncate text-sm font-medium text-card-foreground">
+              <CardTitle bookmark={bookmark} highlightRegex={highlightRegex} />
+            </h2>
+          ) : (
+            <h3 className="flex items-center gap-1.5 truncate text-sm font-medium text-card-foreground">
+              <CardTitle bookmark={bookmark} highlightRegex={highlightRegex} />
+            </h3>
+          )}
           <p className="mt-0.5 truncate text-xs text-muted-foreground">
             {bookmark.hostname}
           </p>
@@ -127,6 +128,29 @@ function BookmarkCardImpl({
  * (scroll-spy, dialogs, palette) skip every card re-render.
  */
 export const BookmarkCard = memo(BookmarkCardImpl);
+
+/** Card title content, shared by the h2 and h3 variants. */
+function CardTitle({
+  bookmark,
+  highlightRegex,
+}: {
+  bookmark: NavBookmark;
+  highlightRegex?: RegExp | null;
+}) {
+  return (
+    <>
+      <span className="truncate">
+        <Highlighted text={bookmark.title} regex={highlightRegex} />
+      </span>
+      {bookmark.hidden ? (
+        <EyeOff
+          className="size-3.5 shrink-0 text-muted-foreground"
+          aria-label="私有"
+        />
+      ) : null}
+    </>
+  );
+}
 
 /** Wraps case-insensitive regex matches of the query in a <mark>. */
 function Highlighted({
