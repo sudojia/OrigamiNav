@@ -17,7 +17,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import type { NavTag } from '@/types/nav';
+import type { NavTagCount } from '@/types/nav';
 
 /** Single-row tag filter: as many chips as fit, then a "+N" panel for the rest. */
 
@@ -27,14 +27,12 @@ const MORE_RESERVE = 44;
 
 export function TagFilterBar({
   tags,
-  counts,
   active,
   onToggle,
   onClear,
 }: {
-  tags: NavTag[];
-  /** Usage count per tag id from the full nav payload. */
-  counts: Map<string, number>;
+  /** Counts come from the server aggregate on each tag. */
+  tags: NavTagCount[];
   active: string[];
   onToggle: (id: string) => void;
   onClear: () => void;
@@ -115,7 +113,6 @@ export function TagFilterBar({
           <TagChip
             key={tag.id}
             tag={tag}
-            count={counts.get(tag.id) ?? 0}
             active
             onToggle={onToggle}
           />
@@ -124,7 +121,6 @@ export function TagFilterBar({
           <TagChip
             key={tag.id}
             tag={tag}
-            count={counts.get(tag.id) ?? 0}
             active={false}
             onToggle={onToggle}
           />
@@ -138,7 +134,6 @@ export function TagFilterBar({
             <TagChip
               key={tag.id}
               tag={tag}
-              count={counts.get(tag.id) ?? 0}
               active={activeSet.has(tag.id)}
               onToggle={onToggle}
               measure
@@ -167,7 +162,6 @@ export function TagFilterBar({
             </PopoverTrigger>
             <TagPanel
               tags={tags}
-              counts={counts}
               activeSet={activeSet}
               onToggle={onToggle}
               onClear={onClear}
@@ -191,13 +185,11 @@ export function TagFilterBar({
 
 function TagChip({
   tag,
-  count,
   active,
   onToggle,
   measure,
 }: {
-  tag: NavTag;
-  count: number;
+  tag: NavTagCount;
   active: boolean;
   onToggle: (id: string) => void;
   /** Rendered inside the measuring row: inert and excluded from a11y tree. */
@@ -218,9 +210,9 @@ function TagChip({
       )}
     >
       {tag.name}
-      {count > 0 ? (
+      {tag.count > 0 ? (
         <span className={cn('tabular-nums', active ? 'opacity-70' : 'opacity-50')}>
-          {count}
+          {tag.count}
         </span>
       ) : null}
       {active ? <X className="size-3" aria-hidden /> : null}
@@ -230,13 +222,11 @@ function TagChip({
 
 function TagPanel({
   tags,
-  counts,
   activeSet,
   onToggle,
   onClear,
 }: {
-  tags: NavTag[];
-  counts: Map<string, number>;
+  tags: NavTagCount[];
   activeSet: Set<string>;
   onToggle: (id: string) => void;
   onClear: () => void;
@@ -296,7 +286,7 @@ function TagPanel({
                   >
                     <span className="min-w-0 flex-1 truncate">{tag.name}</span>
                     <span className="shrink-0 text-[0.625rem] tabular-nums opacity-60">
-                      {counts.get(tag.id) ?? 0}
+                      {tag.count}
                     </span>
                     {active ? <Check className="size-3.5 shrink-0" /> : null}
                   </button>

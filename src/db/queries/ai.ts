@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { safeQuery } from '../client';
 import { bookmarks, bookmarksTags, secrets, settings } from '../schema';
@@ -41,7 +41,7 @@ export async function listUntaggedBookmarks(
           description: bookmarks.description,
         })
         .from(bookmarks)
-        .where(NO_TAGS)
+        .where(and(isNull(bookmarks.deletedAt), NO_TAGS))
         .orderBy(sql`${bookmarks.createdAt} desc`)
         .limit(limit),
     [],
@@ -56,7 +56,7 @@ export async function countUntaggedBookmarks(): Promise<number> {
       const rows = await database
         .select({ n: sql<number>`count(*)::int` })
         .from(bookmarks)
-        .where(NO_TAGS);
+        .where(and(isNull(bookmarks.deletedAt), NO_TAGS));
       return rows[0]?.n ?? 0;
     },
     0,

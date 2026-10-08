@@ -1,17 +1,17 @@
 import 'server-only';
 
-import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { cache } from 'react';
 
 import { newId, newRow, nowIso } from '@/lib/ids';
 import { slugifyUnique } from '@/lib/pinyin';
 
 import { db, safeQuery } from '../client';
-import { bookmarks, categories, type Category } from '../schema';
+import { bookmarks, bookmarksTags, categories, type Category } from '../schema';
 
 export type CategoryWithCount = Category & { bookmarkCount: number };
 
-/** Categories in display order with their bookmark counts. */
+/** Live categories in display order with their live bookmark counts. */
 export async function listCategoriesWithCounts(): Promise<CategoryWithCount[]> {
   return safeQuery(
     'listCategoriesWithCounts',
@@ -20,6 +20,7 @@ export async function listCategoriesWithCounts(): Promise<CategoryWithCount[]> {
         database
           .select()
           .from(categories)
+          .where(isNull(categories.deletedAt))
           .orderBy(asc(categories.sortOrder), asc(categories.createdAt)),
         database
           .select({
@@ -27,6 +28,7 @@ export async function listCategoriesWithCounts(): Promise<CategoryWithCount[]> {
             n: sql<number>`count(*)::int`,
           })
           .from(bookmarks)
+          .where(isNull(bookmarks.deletedAt))
           .groupBy(bookmarks.categoryId),
       ]);
 
@@ -62,8 +64,14 @@ export const getCategoryBySlug = cache(
               sql<number>`count(*) filter (where ${bookmarks.hidden} = false)::int`,
           })
           .from(categories)
-          .leftJoin(bookmarks, eq(bookmarks.categoryId, categories.id))
-          .where(eq(categories.slug, slug))
+          .leftJoin(
+            bookmarks,
+            and(
+              eq(bookmarks.categoryId, categories.id),
+              isNull(bookmarks.deletedAt),
+            ),
+          )
+          .where(and(eq(categories.slug, slug), isNull(categories.deletedAt)))
           .groupBy(categories.id)
           .limit(1);
         const row = rows[0];
@@ -89,13 +97,21 @@ export async function listVisibleCategorySlugs(): Promise<
         .select({ slug: categories.slug, updatedAt: categories.updatedAt })
         .from(categories)
         .innerJoin(bookmarks, eq(bookmarks.categoryId, categories.id))
-        .where(and(eq(categories.hidden, false), eq(bookmarks.hidden, false)))
+        .where(
+          and(
+            eq(categories.hidden, false),
+            eq(bookmarks.hidden, false),
+            isNull(categories.deletedAt),
+            isNull(bookmarks.deletedAt),
+          ),
+        )
         .groupBy(categories.id, categories.slug, categories.updatedAt, categories.sortOrder)
         .orderBy(asc(categories.sortOrder)),
     [],
   );
 }
 
+/** A live category by id; null when it is missing or in the recycle bin. */
 export async function getCategoryById(id: string): Promise<Category | null> {
   return safeQuery(
     'getCategoryById',
@@ -103,7 +119,7 @@ export async function getCategoryById(id: string): Promise<Category | null> {
       const rows = await database
         .select()
         .from(categories)
-        .where(eq(categories.id, id))
+        .where(and(eq(categories.id, id), isNull(categories.deletedAt)))
         .limit(1);
       return rows[0] ?? null;
     },
@@ -111,7 +127,7 @@ export async function getCategoryById(id: string): Promise<Category | null> {
   );
 }
 
-/** Finds a category by exact name; null when it does not exist yet. */
+/** Finds a live category by exact name; null when it does not exist yet. */
 export async function getCategoryByName(
   name: string,
 ): Promise<Category | null> {
@@ -121,7 +137,7 @@ export async function getCategoryByName(
       const rows = await database
         .select()
         .from(categories)
-        .where(eq(categories.name, name))
+        .where(and(eq(categories.name, name), isNull(categories.deletedAt)))
         .limit(1);
       return rows[0] ?? null;
     },
@@ -129,10 +145,13 @@ export async function getCategoryByName(
   );
 }
 
-/** Categories for the given ids; missing ids are simply absent. */
+/** Live categories for the given ids; missing ids are simply absent. */
 export async function getCategoriesByIds(ids: string[]): Promise<Category[]> {
   if (!ids.length) return [];
-  return db.select().from(categories).where(inArray(categories.id, ids));
+  return db
+    .select()
+    .from(categories)
+    .where(and(inArray(categories.id, ids), isNull(categories.deletedAt)));
 }
 
 /** Multi-row insert chunk size; keeps statements under pg's parameter cap. */
@@ -166,7 +185,7 @@ export async function resolveOrCreateCategories(
   const existing = await db
     .select()
     .from(categories)
-    .where(inArray(categories.name, names));
+    .where(and(inArray(categories.name, names), isNull(categories.deletedAt)));
   for (const row of existing) result.set(row.name, row);
 
   const missing = names.filter((name) => !result.has(name));
@@ -251,22 +270,26 @@ export async function deleteCategoryIfEmpty(id: string): Promise<{
     const locked = await tx
       .select({ id: categories.id })
       .from(categories)
-      .where(eq(categories.id, id))
+      .where(and(eq(categories.id, id), isNull(categories.deletedAt)))
       .for('update')
       .limit(1);
     const counted = await tx
       .select({ n: sql<number>`count(*)::int` })
       .from(bookmarks)
-      .where(eq(bookmarks.categoryId, id));
+      .where(and(eq(bookmarks.categoryId, id), isNull(bookmarks.deletedAt)));
     const bookmarkCount = counted[0]?.n ?? 0;
     if (!locked[0]) return { deleted: true, bookmarkCount };
     if (bookmarkCount > 0) return { deleted: false, bookmarkCount };
-    await tx.delete(categories).where(eq(categories.id, id));
+    const stamp = nowIso();
+    await tx
+      .update(categories)
+      .set({ deletedAt: stamp, updatedAt: stamp })
+      .where(eq(categories.id, id));
     return { deleted: true, bookmarkCount: 0 };
   });
 }
 
-/** Finds a category by exact name or creates it. */
+/** Finds a live category by exact name or creates it. */
 export async function getOrCreateCategoryByName(
   name: string,
   extra?: { description?: string; icon?: string | null; color?: string | null },
@@ -274,7 +297,7 @@ export async function getOrCreateCategoryByName(
   const existing = await db
     .select()
     .from(categories)
-    .where(eq(categories.name, name))
+    .where(and(eq(categories.name, name), isNull(categories.deletedAt)))
     .limit(1);
   if (existing[0]) return existing[0];
 
@@ -290,7 +313,11 @@ export async function getOrCreateCategoryByName(
   });
 }
 
-/** True when a category slug is already taken. */
+/**
+ * True when a category slug is already taken. Trashed categories still hold
+ * their slug, so they count here: handing it to a new category would collide
+ * with the one waiting in the recycle bin.
+ */
 export async function categorySlugTaken(
   slug: string,
   excludeId?: string,
@@ -335,7 +362,8 @@ export async function createCategory(input: {
   hidden: boolean;
 }): Promise<Category> {
   return db.transaction(async (tx) => {
-    // New categories append to the end of the current order.
+    // New categories append to the end of the current order. Trashed rows are
+    // counted too, so a restored category never lands on a taken position.
     const maxRows = await tx
       .select({ max: sql<number>`coalesce(max(${categories.sortOrder}), -1)::int` })
       .from(categories);
@@ -370,16 +398,54 @@ export async function updateCategory(
     .where(eq(categories.id, id));
 }
 
-/** Cascades to bookmarks and, through them, to their tag links. */
+/**
+ * Moves a category to the recycle bin. Its live bookmarks are stamped with the
+ * same instant so restoring the category brings that batch back, and their tag
+ * links are detached and stashed on each row.
+ */
 export async function deleteCategory(id: string): Promise<void> {
-  await db.delete(categories).where(eq(categories.id, id));
+  await db.transaction(async (tx) => {
+    const stamp = nowIso();
+    const stamped = await tx
+      .update(categories)
+      .set({ deletedAt: stamp, updatedAt: stamp })
+      .where(and(eq(categories.id, id), isNull(categories.deletedAt)))
+      .returning({ id: categories.id });
+    if (!stamped.length) return;
+
+    await tx.execute(sql`
+      UPDATE ${bookmarks} AS b
+      SET deleted_at = ${stamp},
+          updated_at = ${stamp},
+          deleted_tag_ids = coalesce((
+            SELECT string_agg(bt.tag_id, ',')
+            FROM ${bookmarksTags} AS bt
+            WHERE bt.bookmark_id = b.id
+          ), '')
+      WHERE b.category_id = ${id} AND b.deleted_at IS NULL
+    `);
+
+    // Links only exist for live rows, so this clears exactly the batch above.
+    await tx.delete(bookmarksTags).where(
+      inArray(
+        bookmarksTags.bookmarkId,
+        tx
+          .select({ id: bookmarks.id })
+          .from(bookmarks)
+          .where(eq(bookmarks.categoryId, id)),
+      ),
+    );
+  });
 }
 
 /** Persists a category drag order. */
 export async function renumberCategories(orderedIds: string[]): Promise<void> {
   if (!orderedIds.length) return;
   await db.transaction(async (tx) => {
-    const rows = await tx.select({ id: categories.id }).from(categories);
+    const rows = await tx
+      .select({ id: categories.id })
+      .from(categories)
+      .where(isNull(categories.deletedAt));
     const existing = new Set(rows.map((r) => r.id));
     if (
       existing.size !== orderedIds.length ||

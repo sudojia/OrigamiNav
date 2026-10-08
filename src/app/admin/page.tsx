@@ -9,6 +9,7 @@ import {
   Tags,
 } from 'lucide-react';
 
+import { BackupReminder } from '@/components/admin/backup-reminder';
 import { PageHeader } from '@/components/admin/page-header';
 import { buildDonutSlices, RankBar, StatCard } from '@/components/admin/charts';
 import { CategoryDonut } from '@/components/admin/charts-client';
@@ -24,6 +25,8 @@ import {
   getClickStats,
   getRecentBookmarks,
 } from '@/db/queries/stats';
+import { getLastBackupAt } from '@/db/queries/settings';
+import { backupStatus } from '@/lib/backup-status';
 import { colorSwatchClass } from '@/lib/category-color';
 import { requireAdminPage } from '@/lib/session';
 import { formatDate, hostnameOf } from '@/lib/utils';
@@ -37,7 +40,7 @@ const RANK_LIST_LIMIT = 10;
 export default async function AdminHomePage() {
   await requireAdminPage();
 
-  const [counts, distribution, recent, topTags, tagStats, clicks] =
+  const [counts, distribution, recent, topTags, tagStats, clicks, lastBackupAt] =
     await Promise.all([
       getAdminCounts(),
       getCategoryDistribution(),
@@ -46,6 +49,7 @@ export default async function AdminHomePage() {
       getTopTagUsage(RANK_LIST_LIMIT),
       getTagStats(),
       getClickStats(RANK_LIST_LIMIT),
+      getLastBackupAt(),
     ]);
 
   const maxCount = Math.max(1, ...distribution.map((d) => d.count));
@@ -62,6 +66,8 @@ export default async function AdminHomePage() {
         title="总览"
         description="内容修改保存后，前台无需重新部署即可看到变化。"
       />
+
+      <BackupReminder status={backupStatus(lastBackupAt)} />
 
       {/* ── Stat cards ─────────────────────────────────────────────────── */}
       <div className="grid gap-3 sm:grid-cols-3">

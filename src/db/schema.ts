@@ -24,6 +24,11 @@ export const categories = pgTable(
     sortOrder: integer('sort_order').notNull().default(0),
     /** Hidden on the public site; visible only to the signed-in admin. */
     hidden: boolean('hidden').notNull().default(false),
+    /**
+     * Soft-delete marker, null while live. A category and the bookmarks it
+     * took down with it share one stamp, so restoring brings the batch back.
+     */
+    deletedAt: text('deleted_at'),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },
@@ -52,6 +57,13 @@ export const bookmarks = pgTable(
     searchIndex: text('search_index').notNull().default(''),
     /** Hidden on the public site; visible only to the signed-in admin. */
     hidden: boolean('hidden').notNull().default(false),
+    /** Soft-delete marker, null while live. */
+    deletedAt: text('deleted_at'),
+    /**
+     * Tag ids detached on soft delete, comma-joined, empty while live. Kept so
+     * a restore re-attaches exactly the tags the bookmark had.
+     */
+    deletedTagIds: text('deleted_tag_ids').notNull().default(''),
     createdAt: text('created_at').notNull(),
     updatedAt: text('updated_at').notNull(),
   },

@@ -12,6 +12,7 @@ import {
   Settings2,
   Sun,
   Tags,
+  Trash2,
   X,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -62,6 +63,7 @@ const GROUPS: NavGroup[] = [
     title: '数据与系统',
     items: [
       { href: '/admin/import', label: '导入 / 导出', Icon: Import },
+      { href: '/admin/trash', label: '回收站', Icon: Trash2 },
       { href: '/admin/settings', label: '站点设置', Icon: Settings2 },
     ],
   },

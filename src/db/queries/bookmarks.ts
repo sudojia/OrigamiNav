@@ -1,9 +1,10 @@
 import 'server-only';
 
-import { asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { newId, newRow, nowIso } from '@/lib/ids';
 import { buildSearchIndex } from '@/lib/search-index';
+import { termConditions } from '@/lib/search-query';
 import type { NavTag } from '@/types/nav';
 
 import { db, safeQuery, type Database } from '../client';
@@ -16,10 +17,41 @@ import {
   type Category,
 } from '../schema';
 
-export type AdminBookmark = Bookmark & { tags: NavTag[] };
+export type AdminBookmark = {
+  id: string;
+  categoryId: string;
+  title: string;
+  url: string;
+  description: string;
+  iconUrl: string | null;
+  sortOrder: number;
+  clickCount: number;
+  hidden: boolean;
+  createdAt: string;
+  updatedAt: string;
+  tags: NavTag[];
+};
 export type AdminBookmarkGroup = { category: Category; bookmarks: AdminBookmark[] };
 
-/** All categories with their bookmarks and tags, in three queries. */
+/**
+ * Columns the admin manager renders. `search_index` is deliberately absent: it
+ * is ~3x its source text and the admin search runs on the server instead.
+ */
+const adminBookmarkColumns = {
+  id: bookmarks.id,
+  categoryId: bookmarks.categoryId,
+  title: bookmarks.title,
+  url: bookmarks.url,
+  description: bookmarks.description,
+  iconUrl: bookmarks.iconUrl,
+  sortOrder: bookmarks.sortOrder,
+  clickCount: bookmarks.clickCount,
+  hidden: bookmarks.hidden,
+  createdAt: bookmarks.createdAt,
+  updatedAt: bookmarks.updatedAt,
+};
+
+/** Live categories with their live bookmarks and tags, in four queries. */
 export async function getAdminBookmarkGroups(): Promise<AdminBookmarkGroup[]> {
   return safeQuery('getAdminBookmarkGroups', assembleGroups, []);
 }
@@ -31,10 +63,12 @@ async function assembleGroups(
     database
       .select()
       .from(categories)
+      .where(isNull(categories.deletedAt))
       .orderBy(asc(categories.sortOrder), asc(categories.createdAt)),
     database
-      .select()
+      .select(adminBookmarkColumns)
       .from(bookmarks)
+      .where(isNull(bookmarks.deletedAt))
       .orderBy(asc(bookmarks.sortOrder), asc(bookmarks.createdAt)),
     database.select().from(bookmarksTags),
     database.select().from(tags),
@@ -67,6 +101,54 @@ async function assembleGroups(
   }));
 }
 
+/**
+ * Admin bookmark search, running on the server so `search_index` never has to
+ * be shipped. Returns the matched rows in display order; the caller groups them.
+ */
+export async function searchAdminBookmarks(
+  query: string,
+  limit: number,
+): Promise<AdminBookmark[]> {
+  const terms = termConditions(query, bookmarks.searchIndex);
+  if (terms.length === 0) return [];
+
+  return safeQuery(
+    'searchAdminBookmarks',
+    async (database) => {
+      const rows = await database
+        .select(adminBookmarkColumns)
+        .from(bookmarks)
+        .where(and(isNull(bookmarks.deletedAt), ...terms))
+        // Same keyset order as the public search, so both agree on ordering.
+        .orderBy(asc(bookmarks.sortOrder), asc(bookmarks.id))
+        .limit(limit);
+
+      const ids = rows.map((row) => row.id);
+      const tagsByBookmark = new Map<string, NavTag[]>();
+      if (ids.length > 0) {
+        const links = await database
+          .select({ bookmarkId: bookmarksTags.bookmarkId, id: tags.id, name: tags.name, slug: tags.slug })
+          .from(bookmarksTags)
+          .innerJoin(tags, eq(tags.id, bookmarksTags.tagId))
+          .where(inArray(bookmarksTags.bookmarkId, ids))
+          .orderBy(asc(tags.name));
+        for (const link of links) {
+          const tag: NavTag = { id: link.id, name: link.name, slug: link.slug };
+          const list = tagsByBookmark.get(link.bookmarkId);
+          if (list) list.push(tag);
+          else tagsByBookmark.set(link.bookmarkId, [tag]);
+        }
+      }
+
+      return rows.map((row) => ({
+        ...row,
+        tags: tagsByBookmark.get(row.id) ?? [],
+      }));
+    },
+    [],
+  );
+}
+
 /** Creates a bookmark and its tag links, appended to the category end.
  * The sort order is computed inside the INSERT, so the common no-tags path
  * is a single round-trip. */
@@ -89,7 +171,7 @@ export async function createBookmark(input: {
       url: input.url,
       description: input.description,
       iconUrl: input.iconUrl,
-      sortOrder: sql`(select coalesce(max(${bookmarks.sortOrder}), -1) + 1 from ${bookmarks} where ${bookmarks.categoryId} = ${input.categoryId})`,
+      sortOrder: sql`(select coalesce(max(${bookmarks.sortOrder}), -1) + 1 from ${bookmarks} where ${bookmarks.categoryId} = ${input.categoryId} and ${bookmarks.deletedAt} is null)`,
       hidden: input.hidden,
       searchIndex: buildSearchIndex({
         title: input.title,
@@ -137,7 +219,7 @@ export async function updateBookmark(
     const rows = await tx
       .select()
       .from(bookmarks)
-      .where(eq(bookmarks.id, id))
+      .where(and(eq(bookmarks.id, id), isNull(bookmarks.deletedAt)))
       .limit(1);
     const current = rows[0];
     if (!current) throw new Error('书签不存在或已被删除');
@@ -147,7 +229,12 @@ export async function updateBookmark(
       const maxRows = await tx
         .select({ max: sql<number>`coalesce(max(${bookmarks.sortOrder}), -1)::int` })
         .from(bookmarks)
-        .where(eq(bookmarks.categoryId, input.categoryId));
+        .where(
+          and(
+            eq(bookmarks.categoryId, input.categoryId),
+            isNull(bookmarks.deletedAt),
+          ),
+        );
       sortOrder = (maxRows[0]?.max ?? -1) + 1;
     }
 
@@ -181,9 +268,29 @@ export async function updateBookmark(
   });
 }
 
+/**
+ * Moves a bookmark to the recycle bin. Its tag links are detached and stashed
+ * on the row, so a restore re-attaches exactly the tags it had.
+ */
 export async function deleteBookmark(id: string): Promise<void> {
-  // Tag links cascade via the FK.
-  await db.delete(bookmarks).where(eq(bookmarks.id, id));
+  await db.transaction(async (tx) => {
+    const links = await tx
+      .select({ tagId: bookmarksTags.tagId })
+      .from(bookmarksTags)
+      .where(eq(bookmarksTags.bookmarkId, id));
+
+    const stamp = nowIso();
+    await tx
+      .update(bookmarks)
+      .set({
+        deletedAt: stamp,
+        deletedTagIds: links.map((link) => link.tagId).join(','),
+        updatedAt: stamp,
+      })
+      .where(and(eq(bookmarks.id, id), isNull(bookmarks.deletedAt)));
+
+    await tx.delete(bookmarksTags).where(eq(bookmarksTags.bookmarkId, id));
+  });
 }
 
 /** Adds one to a bookmark's click count. */
@@ -209,7 +316,7 @@ export async function getExistingBookmarkUrls(urls: string[]): Promise<Set<strin
       const rows = await database
         .select({ url: bookmarks.url })
         .from(bookmarks)
-        .where(inArray(bookmarks.url, urls));
+        .where(and(inArray(bookmarks.url, urls), isNull(bookmarks.deletedAt)));
       return new Set(rows.map((r) => r.url));
     },
     new Set<string>(),
@@ -223,7 +330,7 @@ export type ExistingBookmark = {
   categoryName: string;
 };
 
-/** Finds a bookmark by exact URL; null when it does not exist yet. */
+/** Finds a live bookmark by exact URL; null when it does not exist. */
 export async function getBookmarkByUrl(
   url: string,
 ): Promise<ExistingBookmark | null> {
@@ -239,7 +346,7 @@ export async function getBookmarkByUrl(
         })
         .from(bookmarks)
         .innerJoin(categories, eq(categories.id, bookmarks.categoryId))
-        .where(eq(bookmarks.url, url))
+        .where(and(eq(bookmarks.url, url), isNull(bookmarks.deletedAt)))
         .limit(1);
       return rows[0] ?? null;
     },
@@ -268,7 +375,7 @@ export async function getBookmarkById(id: string): Promise<AiTagSource | null> {
           description: bookmarks.description,
         })
         .from(bookmarks)
-        .where(eq(bookmarks.id, id))
+        .where(and(eq(bookmarks.id, id), isNull(bookmarks.deletedAt)))
         .limit(1);
       return rows[0] ?? null;
     },
@@ -306,6 +413,7 @@ export async function createBookmarksBulk(
         max: sql<number>`coalesce(max(${bookmarks.sortOrder}), -1)::int`,
       })
       .from(bookmarks)
+      .where(isNull(bookmarks.deletedAt))
       .groupBy(bookmarks.categoryId);
     const nextOrder = new Map(maxRows.map((r) => [r.categoryId, r.max + 1]));
 
@@ -363,7 +471,12 @@ export async function renumberBookmarksInCategory(
     const rows = await tx
       .select({ id: bookmarks.id })
       .from(bookmarks)
-      .where(eq(bookmarks.categoryId, categoryId));
+      .where(
+        and(
+          eq(bookmarks.categoryId, categoryId),
+          isNull(bookmarks.deletedAt),
+        ),
+      );
     const existing = new Set(rows.map((r) => r.id));
     if (
       existing.size !== orderedIds.length ||

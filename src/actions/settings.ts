@@ -31,6 +31,7 @@ import {
   DEFAULT_AI_TAG_RANGE,
   DEFAULT_LOGIN_RATE_LIMIT,
   DEFAULT_SESSION_MAX_DAYS,
+  DEFAULT_TRASH_RETENTION_DAYS,
   FAVICON_MODES,
   ICON_SERVICES,
   ICON_TEMPLATE_PLACEHOLDER,
@@ -46,6 +47,7 @@ import {
   clampLoginRateLimit,
   clampSessionMaxDays,
   isCategoryPreviewCount,
+  isTrashRetentionDays,
 } from '@/types/nav';
 
 import type { ActionState } from './auth';
@@ -121,6 +123,10 @@ const settingsSchema = z
       .int()
       .refine(isCategoryPreviewCount, '请选择有效的展示数量'),
     categoryDeleteMode: z.enum(CATEGORY_DELETE_MODES),
+    trashRetentionDays: z.coerce
+      .number()
+      .int()
+      .refine(isTrashRetentionDays, '请选择有效的保留天数'),
     sessionMaxDays: z.coerce
       .number()
       .int()
@@ -210,6 +216,9 @@ export async function updateSettingsAction(
     cardColumns: formData.get('cardColumns'),
     categoryPreviewCount: formData.get('categoryPreviewCount'),
     categoryDeleteMode: formData.get('categoryDeleteMode') ?? 'protected',
+    trashRetentionDays:
+      formData.get('trashRetentionDays') ??
+      String(DEFAULT_TRASH_RETENTION_DAYS),
     sessionMaxDays:
       formData.get('sessionMaxDays') ?? String(DEFAULT_SESSION_MAX_DAYS),
     loginRateLimit:
@@ -260,6 +269,9 @@ export async function updateSettingsAction(
         parsed.data.categoryPreviewCount,
       ),
       [SETTING_KEYS.categoryDeleteMode]: parsed.data.categoryDeleteMode,
+      [SETTING_KEYS.trashRetentionDays]: String(
+        parsed.data.trashRetentionDays,
+      ),
       [SETTING_KEYS.sessionMaxDays]: String(
         clampSessionMaxDays(parsed.data.sessionMaxDays),
       ),

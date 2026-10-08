@@ -87,11 +87,14 @@ export function NavChipBar({
   categories,
   activeId,
   onSelect,
+  counts,
 }: {
   categories: NavCategory[];
   activeId: string | null;
   /** Set when a click should scroll to the in-page section instead of navigating. */
   onSelect?: (slug: string) => void;
+  /** Visible count after filtering; matches the sidebar. */
+  counts: Map<string, number>;
 }) {
   return (
     <nav
@@ -127,7 +130,7 @@ export function NavChipBar({
                 />
                 {category.name}
                 <span className="tabular-nums opacity-70">
-                  {category.bookmarks.length}
+                  {counts.get(category.id) ?? category.bookmarks.length}
                 </span>
               </a>
             </li>

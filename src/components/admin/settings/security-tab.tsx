@@ -1,9 +1,19 @@
 'use client';
 
-import { FolderLock, ShieldCheck, Trash2, TriangleAlert, Type } from 'lucide-react';
+import {
+  Clock,
+  FolderLock,
+  ShieldCheck,
+  Trash2,
+  TriangleAlert,
+  Type,
+} from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import type { CategoryDeleteMode } from '@/types/nav';
+import {
+  TRASH_RETENTION_DAYS,
+  type CategoryDeleteMode,
+} from '@/types/nav';
 
 import { SettingsSelect } from '../form-primitives';
 import { FieldSection } from './field-section';
@@ -17,16 +27,22 @@ const CATEGORY_DELETE_MODE_OPTIONS: Array<{
   {
     value: 'protected',
     label: '存在书签不可删除',
-    hint: '分类下还有书签时，删除请求会被拒绝，书签安然无恙。',
+    hint: '分类下还有书签时，删除请求会被拒绝，需要先移出这些书签。',
     Icon: ShieldCheck,
   },
   {
     value: 'cascade',
     label: '书签一并删除',
-    hint: '删除分类时，其中的书签与标签关联一起删除。',
+    hint: '删除分类时，其中的书签跟着一起进入回收站。',
     Icon: Trash2,
   },
 ];
+
+/** Recycle-bin lifetimes, derived from the accepted setting values. */
+const TRASH_RETENTION_OPTIONS = TRASH_RETENTION_DAYS.map((days) => ({
+  value: String(days),
+  label: days === 0 ? '永久保留' : `${days} 天`,
+}));
 
 /** Session-lifetime choices in days. */
 const SESSION_MAX_DAY_OPTIONS = [1, 7, 14, 30];
@@ -37,9 +53,11 @@ const LOGIN_RATE_LIMIT_OPTIONS = [5, 10, 20, 50];
 export interface SecurityTabProps {
   active: boolean;
   deleteMode: CategoryDeleteMode;
+  trashRetentionDays: string;
   sessionMaxDays: string;
   loginRateLimit: string;
   onDeleteModeChange: (value: CategoryDeleteMode) => void;
+  onTrashRetentionDaysChange: (value: string) => void;
   onSessionMaxDaysChange: (value: string) => void;
   onLoginRateLimitChange: (value: string) => void;
 }
@@ -47,9 +65,11 @@ export interface SecurityTabProps {
 export function SecurityTab({
   active,
   deleteMode,
+  trashRetentionDays,
   sessionMaxDays,
   loginRateLimit,
   onDeleteModeChange,
+  onTrashRetentionDaysChange,
   onSessionMaxDaysChange,
   onLoginRateLimitChange,
 }: SecurityTabProps) {
@@ -119,9 +139,26 @@ export function SecurityTab({
                 className="mt-0.5 size-3.5 shrink-0"
                 aria-hidden
               />
-              书签将被永久删除且不可恢复，删除分类前请确认不再需要其中的书签。
+              书签会随分类一起进入回收站；在保留期内可以恢复，彻底清除后不可挽回。
             </p>
           ) : null}
+        </FieldSection>
+
+        <FieldSection
+          divided
+          Icon={Clock}
+          title="回收站保留"
+          description="删除的分类与书签在这里暂存多久，超期内容会被自动清理。"
+        >
+          <SettingsSelect
+            id="settings-trash-retention"
+            label="保留时长"
+            hint="没有常驻定时任务，超期内容在你打开回收站时清理，也可以手动触发。"
+            hintClassName="text-xs leading-relaxed text-muted-foreground"
+            value={trashRetentionDays}
+            onValueChange={onTrashRetentionDaysChange}
+            options={TRASH_RETENTION_OPTIONS}
+          />
         </FieldSection>
 
         <FieldSection
@@ -165,10 +202,12 @@ export function SecurityTab({
 /** Side-rail summary of the security settings. */
 export function SecurityRail({
   deleteMode,
+  trashRetentionDays,
   sessionMaxDays,
   loginRateLimit,
 }: {
   deleteMode: CategoryDeleteMode;
+  trashRetentionDays: number;
   sessionMaxDays: number;
   loginRateLimit: number;
 }) {
@@ -177,6 +216,10 @@ export function SecurityRail({
     ['密码存储', 'scrypt 加盐哈希'],
     ['登录会话', `${sessionMaxDays} 天`],
     ['分类删除', deleteMode === 'cascade' ? '书签一并删除' : '存在书签不可删除'],
+    [
+      '回收站保留',
+      trashRetentionDays > 0 ? `${trashRetentionDays} 天` : '永久保留',
+    ],
   ];
 
   return (
@@ -202,12 +245,12 @@ export function SecurityRail({
           'mt-3 rounded-md px-2.5 py-1.5 text-[0.6875rem] leading-relaxed',
           deleteMode === 'protected'
             ? 'bg-chart-3/10 text-chart-3'
-            : 'bg-destructive/10 text-destructive',
+            : 'bg-amber-500/10 text-amber-600 dark:text-amber-500',
         )}
       >
         {deleteMode === 'protected'
           ? '分类删除保护已开启，误删不会波及书签。'
-          : '级联删除已开启，删分类会连带书签，请谨慎操作。'}
+          : '级联删除已开启：删分类会连同其中的书签一起移入回收站。'}
       </p>
     </section>
   );

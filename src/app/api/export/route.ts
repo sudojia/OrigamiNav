@@ -1,3 +1,4 @@
+import { markBackupExported } from '@/db/queries/settings';
 import { exportAllData } from '@/db/queries/transfer';
 import { getCurrentAdmin } from '@/lib/session';
 
@@ -20,6 +21,8 @@ export async function GET() {
       { status: 503, headers: { 'Cache-Control': 'no-store, max-age=0' } },
     );
   }
+
+  await markBackupExported();
 
   const date = new Date().toISOString().slice(0, 10);
   const body = JSON.stringify(payload, null, 2);

@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import type { BackupStatus } from '@/lib/backup-status';
 
 import { ExportCard } from './import/export-card';
 import { HtmlTab } from './import/html-tab';
@@ -18,9 +19,11 @@ import { TileActiveCheck, TILE_TRIGGER } from './panel-ui';
 export function ImportManager({
   categories,
   counts,
+  backupStatus,
 }: {
   categories: Array<{ id: string; name: string }>;
   counts: { categories: number; bookmarks: number };
+  backupStatus: BackupStatus;
 }) {
   return (
     <div className="space-y-5">
@@ -108,7 +111,7 @@ export function ImportManager({
           </div>
 
           <aside className="space-y-4 xl:sticky xl:top-6">
-            <ExportCard counts={counts} />
+            <ExportCard counts={counts} status={backupStatus} />
             <TipsCard />
           </aside>
         </div>

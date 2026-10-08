@@ -217,7 +217,7 @@ export async function deleteBookmarkAction(id: string): Promise<ActionState> {
   }
 
   revalidateSite();
-  return { ok: true, message: '书签已删除' };
+  return { ok: true, message: '书签已移入回收站' };
 }
 
 export async function reorderBookmarksAction(

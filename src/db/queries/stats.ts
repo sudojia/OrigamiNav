@@ -1,11 +1,11 @@
 import 'server-only';
 
-import { asc, desc, eq, gt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 
 import { safeQuery } from '../client';
 import { bookmarks, categories, tags } from '../schema';
 
-/** Row counts for the admin overview. */
+/** Row counts for the admin overview; trashed rows are not counted. */
 export type AdminCounts = {
   categories: number;
   bookmarks: number;
@@ -17,8 +17,14 @@ export async function getAdminCounts(): Promise<AdminCounts> {
     'getAdminCounts',
     async (database) => {
       const [categoryRows, bookmarkRows, tagRows] = await Promise.all([
-        database.select({ n: sql<number>`count(*)::int` }).from(categories),
-        database.select({ n: sql<number>`count(*)::int` }).from(bookmarks),
+        database
+          .select({ n: sql<number>`count(*)::int` })
+          .from(categories)
+          .where(isNull(categories.deletedAt)),
+        database
+          .select({ n: sql<number>`count(*)::int` })
+          .from(bookmarks)
+          .where(isNull(bookmarks.deletedAt)),
         database.select({ n: sql<number>`count(*)::int` }).from(tags),
       ]);
       return {
@@ -50,6 +56,7 @@ export async function getRecentBookmarks(
         })
         .from(bookmarks)
         .innerJoin(categories, eq(categories.id, bookmarks.categoryId))
+        .where(and(isNull(bookmarks.deletedAt), isNull(categories.deletedAt)))
         .orderBy(desc(bookmarks.createdAt))
         .limit(limit);
       return rows;
@@ -58,7 +65,7 @@ export async function getRecentBookmarks(
   );
 }
 
-/** Bookmark count per category in display order, including empty ones. */
+/** Bookmark count per live category in display order, including empty ones. */
 export async function getCategoryDistribution(): Promise<
   Array<{ id: string; name: string; color: string | null; count: number }>
 > {
@@ -73,7 +80,14 @@ export async function getCategoryDistribution(): Promise<
           count: sql<number>`count(${bookmarks.id})::int`,
         })
         .from(categories)
-        .leftJoin(bookmarks, eq(bookmarks.categoryId, categories.id))
+        .leftJoin(
+          bookmarks,
+          and(
+            eq(bookmarks.categoryId, categories.id),
+            isNull(bookmarks.deletedAt),
+          ),
+        )
+        .where(isNull(categories.deletedAt))
         .groupBy(categories.id, categories.name, categories.color, categories.sortOrder)
         .orderBy(asc(categories.sortOrder));
       return rows;
@@ -82,7 +96,7 @@ export async function getCategoryDistribution(): Promise<
   );
 }
 
-/** Most-opened bookmarks, plus the total number of opens. */
+/** Most-opened live bookmarks, plus the total number of opens. */
 export async function getClickStats(limit: number): Promise<{
   items: Array<{ id: string; title: string; clickCount: number }>;
   total: number;
@@ -98,14 +112,15 @@ export async function getClickStats(limit: number): Promise<{
             clickCount: bookmarks.clickCount,
           })
           .from(bookmarks)
-          .where(gt(bookmarks.clickCount, 0))
+          .where(and(gt(bookmarks.clickCount, 0), isNull(bookmarks.deletedAt)))
           .orderBy(desc(bookmarks.clickCount), asc(bookmarks.title))
           .limit(limit),
         database
           .select({
             n: sql<number>`coalesce(sum(${bookmarks.clickCount}), 0)::int`,
           })
-          .from(bookmarks),
+          .from(bookmarks)
+          .where(isNull(bookmarks.deletedAt)),
       ]);
       return { items: rows, total: totals[0]?.n ?? 0 };
     },

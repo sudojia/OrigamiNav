@@ -1,7 +1,7 @@
 'use client';
 
-import { CornerDownLeft, ExternalLink, Hash } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { CornerDownLeft, ExternalLink, Hash, Loader2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Favicon } from '@/components/nav/favicon';
 import {
@@ -11,51 +11,154 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import {
-  buildPaletteItems,
-  rankPaletteItems,
-} from '@/lib/filter';
-import type { NavData } from '@/types/nav';
+import type { NavSearchResult } from '@/types/nav';
 
-/** Cmd/Ctrl+K jump menu; ranks against the server-precomputed searchIndex. */
+/** Typing pause before a search request goes out. */
+const SEARCH_DEBOUNCE_MS = 180;
+/** Rows rendered per group; the server caps the total at SEARCH_LIMIT. */
+const GROUP_LIMIT = 20;
+
+type CategoryEntry = {
+  kind: 'category';
+  id: string;
+  label: string;
+  sublabel: string;
+  slug: string;
+};
+
+type BookmarkEntry = {
+  kind: 'bookmark';
+  id: string;
+  label: string;
+  sublabel: string;
+  href: string;
+  iconUrl: string | null;
+};
+
+type Entry = CategoryEntry | BookmarkEntry;
+
+/**
+ * Cmd/Ctrl+K jump menu. Matching and ranking run on the server over
+ * `search_index`, which is no longer shipped to the browser; cmdk's own filter
+ * stays disabled because the result set is already filtered.
+ */
 export function CommandPalette({
-  nav,
   open,
   onOpenChange,
   onJumpToCategory,
 }: {
-  nav: NavData;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onJumpToCategory: (slug: string) => void;
 }) {
   const [query, setQuery] = useState('');
+  const [result, setResult] = useState<NavSearchResult | null>(null);
+  // Bumped per request so a slow earlier response cannot overwrite a later one.
+  const seqRef = useRef(0);
 
-  const allItems = useMemo(() => buildPaletteItems(nav), [nav]);
-  const results = useMemo(
-    () => rankPaletteItems(allItems, nav, query, 40),
-    [allItems, nav, query],
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    const seq = (seqRef.current += 1);
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const response = await fetch(
+          `/api/nav?${new URLSearchParams({ q: trimmed })}`,
+          { cache: 'no-store', signal: controller.signal },
+        );
+        if (!response.ok) throw new Error(String(response.status));
+        const payload = (await response.json()) as NavSearchResult;
+        if (seq !== seqRef.current) return;
+        setResult(
+          Array.isArray(payload.categories)
+            ? payload
+            : { categories: [], truncated: false, cursor: null },
+        );
+      } catch (error) {
+        if (controller.signal.aborted || seq !== seqRef.current) return;
+        console.error('[origaminav] palette search failed', error);
+        setResult({ categories: [], truncated: false, cursor: null });
+      }
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query]);
+
+  /** A query change resets the result set, which restores the loading state. */
+  const handleQueryChange = useCallback((next: string) => {
+    setQuery(next);
+    setResult(null);
+  }, []);
+
+  // The server already ordered categories by display order and bookmarks by
+  // their in-category order, so a flat read preserves relevance.
+  const { categories, bookmarks } = useMemo(() => {
+    const cats: CategoryEntry[] = [];
+    const marks: BookmarkEntry[] = [];
+    for (const category of result?.categories ?? []) {
+      cats.push({
+        kind: 'category',
+        id: category.id,
+        label: category.name,
+        sublabel: `${category.bookmarks.length} 个匹配`,
+        slug: category.slug,
+      });
+      for (const bookmark of category.bookmarks) {
+        marks.push({
+          kind: 'bookmark',
+          id: bookmark.id,
+          label: bookmark.title,
+          sublabel: bookmark.hostname || category.name,
+          href: bookmark.url,
+          iconUrl: bookmark.iconUrl,
+        });
+      }
+    }
+    return {
+      categories: cats.slice(0, GROUP_LIMIT),
+      bookmarks: marks.slice(0, GROUP_LIMIT),
+    };
+  }, [result]);
+
+  /** Closing the palette discards the query and its result set. */
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      if (!next) {
+        setQuery('');
+        setResult(null);
+      }
+      onOpenChange(next);
+    },
+    [onOpenChange],
   );
 
-  const categories = results.filter((r) => r.kind === 'category');
-  const bookmarks = results.filter((r) => r.kind === 'bookmark');
-
-  function handleSelect(href: string, kind: 'category' | 'bookmark') {
+  function handleSelect(entry: Entry) {
     onOpenChange(false);
     setQuery('');
-    if (kind === 'category') {
-      onJumpToCategory(href.replace(/^#/, ''));
+    setResult(null);
+    if (entry.kind === 'category') {
+      onJumpToCategory(entry.slug);
       return;
     }
     // Opens in a new tab.
-    window.open(href, '_blank', 'noopener,noreferrer');
+    window.open(entry.href, '_blank', 'noopener,noreferrer');
   }
 
+  const hasQuery = query.trim().length > 0;
+  // Derived: a query with no result yet means a request is outstanding.
+  const loading = hasQuery && result === null;
+  const empty = !loading && categories.length === 0 && bookmarks.length === 0;
+
   return (
-    // Disables cmdk's own filtering; ranking is done by rankPaletteItems.
+    // Disables cmdk's own filtering; ranking is done by the server.
     <CommandDialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       title="跳转到书签或分类"
       description="输入关键词搜索，支持拼音首字母"
       commandProps={{ shouldFilter: false }}
@@ -63,12 +166,25 @@ export function CommandPalette({
       <CommandInput
         placeholder="搜索书签或分类，支持拼音首字母…"
         value={query}
-        onValueChange={setQuery}
+        onValueChange={handleQueryChange}
       />
       <CommandList>
-        {results.length === 0 ? (
+        {!hasQuery ? (
           <div className="py-8 text-center text-sm text-muted-foreground">
-            {query.trim() ? '没有匹配的结果' : '输入以搜索'}
+            输入以搜索
+          </div>
+        ) : null}
+
+        {hasQuery && loading && empty ? (
+          <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            正在搜索…
+          </div>
+        ) : null}
+
+        {empty && !loading ? (
+          <div className="py-8 text-center text-sm text-muted-foreground">
+            没有匹配的结果
           </div>
         ) : null}
 
@@ -78,7 +194,7 @@ export function CommandPalette({
               <CommandItem
                 key={item.id}
                 value={`cat-${item.id}`}
-                onSelect={() => handleSelect(item.href, 'category')}
+                onSelect={() => handleSelect(item)}
               >
                 <Hash className="size-4 text-muted-foreground" />
                 <span className="flex-1 truncate">{item.label}</span>
@@ -97,7 +213,7 @@ export function CommandPalette({
               <CommandItem
                 key={item.id}
                 value={`bm-${item.id}`}
-                onSelect={() => handleSelect(item.href, 'bookmark')}
+                onSelect={() => handleSelect(item)}
               >
                 <Favicon
                   hostname={item.sublabel}

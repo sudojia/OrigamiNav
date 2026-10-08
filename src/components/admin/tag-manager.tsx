@@ -159,25 +159,43 @@ export function TagManager({
     [router, startTransition],
   );
 
-  const [searchValue, setSearchValue] = useState(query.query);
-  const [lastQuery, setLastQuery] = useState(query.query);
-  if (lastQuery !== query.query) {
-    setLastQuery(query.query);
-    setSearchValue(query.query);
-  }
+  // ── Search input ──────────────────────────────────────────────────────────
+  // Uncontrolled on purpose: a controlled value gets rewritten to the server's
+  // last echoed term, which drops keystrokes typed while a navigation is in
+  // flight. The URL stays the source of truth; the DOM owns the caret.
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [hasSearchText, setHasSearchText] = useState(query.query !== '');
+  const [pendingTerm, setPendingTerm] = useState(query.query);
+  // Last keystroke, last query value this effect handled, and whether the user
+  // has typed since the URL last matched the box.
+  const typedTermRef = useRef(query.query);
+  const seenQueryRef = useRef(query.query);
+  const typedSinceSyncRef = useRef(false);
 
   useEffect(() => {
-    const trimmed = searchValue.trim();
+    if (seenQueryRef.current === query.query) return;
+    seenQueryRef.current = query.query;
+    // Never rewrite a box the user has typed into since the last sync; a change
+    // arriving after the typing settled is an external navigation.
+    if (typedSinceSyncRef.current) return;
+    typedTermRef.current = query.query;
+    setPendingTerm(query.query);
+    setHasSearchText(query.query !== '');
+    const input = searchRef.current;
+    if (input) input.value = query.query;
+  }, [query.query]);
+
+  useEffect(() => {
+    const trimmed = pendingTerm.trim();
     if (trimmed === query.query) return;
     const timer = setTimeout(
       () => navigate({ query: trimmed }),
       SEARCH_DEBOUNCE_MS,
     );
     return () => clearTimeout(timer);
-  }, [searchValue, query.query, navigate]);
+  }, [pendingTerm, query.query, navigate]);
 
   // `/` focuses the search box.
-  const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) {
@@ -222,6 +240,15 @@ export function TagManager({
 
   const toggleAll = (next: boolean) =>
     setSelected(next ? new Set(items.map((tag) => tag.id)) : new Set());
+
+  /** Clears the box and the filter; the DOM value is reset directly. */
+  const clearSearch = useCallback(() => {
+    if (searchRef.current) searchRef.current.value = '';
+    typedTermRef.current = '';
+    typedSinceSyncRef.current = false;
+    setPendingTerm('');
+    setHasSearchText(false);
+  }, []);
 
   const handleRename = async (tag: TagListRow, name: string) => {
     const trimmed = name.trim();
@@ -333,12 +360,17 @@ export function TagManager({
             <Input
               ref={searchRef}
               type="search"
-              value={searchValue}
-              onChange={(event) => setSearchValue(event.target.value)}
+              defaultValue={query.query}
+              onChange={(event) => {
+                typedTermRef.current = event.target.value;
+                typedSinceSyncRef.current = true;
+                setPendingTerm(event.target.value);
+                setHasSearchText(event.target.value !== '');
+              }}
               onKeyDown={(event) => {
-                if (event.key === 'Escape' && searchValue) {
+                if (event.key === 'Escape' && hasSearchText) {
                   event.preventDefault();
-                  setSearchValue('');
+                  clearSearch();
                 }
               }}
               placeholder="搜索名称或 slug，支持拼音"
@@ -352,10 +384,10 @@ export function TagManager({
                 aria-hidden
                 className="absolute top-1/2 right-2.5 size-4 -translate-y-1/2 animate-spin text-muted-foreground"
               />
-            ) : searchValue ? (
+            ) : hasSearchText ? (
               <button
                 type="button"
-                onClick={() => setSearchValue('')}
+                onClick={clearSearch}
                 aria-label="清除搜索"
                 className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
               >

@@ -7,6 +7,9 @@ import * as schema from './schema';
 
 export type Database = NodePgDatabase<typeof schema>;
 
+/** Transaction handle; same query surface, minus the ability to nest. */
+export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+
 /** Cached on globalThis so dev hot reloads reuse one pool. */
 const globalForDb = globalThis as unknown as {
   origamiNavPool?: pg.Pool;

@@ -167,7 +167,7 @@ export async function deleteCategoryAction(id: string): Promise<ActionState> {
   }
 
   revalidateSite();
-  return { ok: true, message: '分类已删除' };
+  return { ok: true, message: '分类已移入回收站' };
 }
 
 export async function reorderCategoriesAction(

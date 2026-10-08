@@ -16,7 +16,7 @@ import {
   sql,
 } from 'drizzle-orm';
 
-import { tokenize } from '@/lib/filter';
+import { tokenize } from '@/lib/search-query';
 import { newId, nowIso } from '@/lib/ids';
 import { slugifyUnique } from '@/lib/pinyin';
 import type { TagListQuery, TagSort } from '@/lib/tag-list';

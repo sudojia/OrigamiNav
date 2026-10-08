@@ -1,13 +1,17 @@
-import { Download, FolderTree, Link2 } from 'lucide-react';
+import { Download, FolderTree, Link2, TriangleAlert } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { backupSummary, type BackupStatus } from '@/lib/backup-status';
+import { cn } from '@/lib/utils';
 
 // ── Side rail ────────────────────────────────────────────────────────────────
 
 export function ExportCard({
   counts,
+  status,
 }: {
   counts: { categories: number; bookmarks: number };
+  status: BackupStatus;
 }) {
   return (
     <section className="rounded-card border bg-card shadow-card">
@@ -25,6 +29,23 @@ export function ExportCard({
         <div className="grid grid-cols-2 gap-2">
           <StatTile Icon={FolderTree} label="现有分类" value={counts.categories} />
           <StatTile Icon={Link2} label="现有书签" value={counts.bookmarks} />
+        </div>
+
+        <div
+          className={cn(
+            'flex items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-relaxed',
+            status.overdue
+              ? 'border-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-500'
+              : 'border-border/60 bg-muted/40 text-muted-foreground',
+          )}
+        >
+          {status.overdue ? (
+            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+          ) : null}
+          <span>
+            {backupSummary(status)}
+            {status.overdue ? '，建议导出一份保存到本地。' : null}
+          </span>
         </div>
 
         <Button asChild className="w-full shadow-sm">

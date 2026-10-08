@@ -76,7 +76,7 @@ export function CategoryManager({
         title="分类管理"
         description={
           deleteMode === 'cascade'
-            ? '拖动手柄调整前台显示顺序。删除分类会连带删除其中的书签。'
+            ? '拖动手柄调整前台显示顺序。删除分类会把其中的书签一起移入回收站。'
             : '拖动手柄调整前台显示顺序。分类下存在书签时不可删除。'
         }
       >
@@ -164,8 +164,9 @@ export function CategoryManager({
         description={
           deleteBlocked
             ? `该分类下还有 ${deleting?.bookmarkCount ?? 0} 个书签。已开启「存在书签不可删除」，请先移出或删除这些书签。`
-            : `该分类下的 ${deleting?.bookmarkCount ?? 0} 个书签及其标签关联会一并删除，此操作不可撤销。`
+            : `该分类及其中的 ${deleting?.bookmarkCount ?? 0} 个书签会一起移入回收站，可在保留期内恢复。`
         }
+        confirmLabel="移入回收站"
         confirmDisabled={deleteBlocked}
         onConfirm={handleDelete}
       />

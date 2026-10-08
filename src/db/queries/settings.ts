@@ -15,11 +15,13 @@ import {
   isFaviconMode,
   isIconService,
   isSkinId,
+  isTrashRetentionDays,
   VERIFICATION_TARGETS,
   verificationKey,
   type SiteSettings,
   type VerificationId,
 } from '@/types/nav';
+import { nowIso } from '@/lib/ids';
 import { normalizeSiteUrl } from '@/lib/seo';
 import { clampInt } from '@/lib/utils';
 
@@ -29,6 +31,7 @@ import { secrets, settings } from '../schema';
 export const SETTING_KEYS = {
   installed: 'installed',
   installedAt: 'installed_at',
+  lastBackupAt: 'last_backup_at',
   siteName: 'site_name',
   tagline: 'tagline',
   description: 'description',
@@ -49,6 +52,7 @@ export const SETTING_KEYS = {
   cardColumns: 'card_columns',
   categoryPreviewCount: 'category_preview_count',
   categoryDeleteMode: 'category_delete_mode',
+  trashRetentionDays: 'trash_retention_days',
   aiBaseUrl: 'ai_base_url',
   aiModel: 'ai_model',
   aiProtocol: 'ai_protocol',
@@ -86,6 +90,13 @@ function parseCategoryPreviewCount(value: string | undefined): number {
   return value !== undefined && isCategoryPreviewCount(value)
     ? Number(value)
     : DEFAULT_SETTINGS.categoryPreviewCount;
+}
+
+/** Preset-listed value or the default; hand-edited rows snap back. */
+function parseTrashRetentionDays(value: string | undefined): number {
+  return isTrashRetentionDays(value)
+    ? Number(value)
+    : DEFAULT_SETTINGS.trashRetentionDays;
 }
 
 /** Site settings snapshot, memoized per request; defaults when unavailable. */
@@ -171,6 +182,9 @@ function settingsFromRows(
     categoryDeleteMode: isCategoryDeleteMode(categoryDeleteMode)
       ? categoryDeleteMode
       : DEFAULT_SETTINGS.categoryDeleteMode,
+    trashRetentionDays: parseTrashRetentionDays(
+      map.get(SETTING_KEYS.trashRetentionDays),
+    ),
     sessionMaxDays: clampSessionMaxDays(map.get(SETTING_KEYS.sessionMaxDays)),
     loginRateLimit: clampLoginRateLimit(
       map.get(SETTING_KEYS.loginRateLimit),
@@ -224,6 +238,27 @@ export async function claimInstallLock(): Promise<boolean> {
 
 export async function releaseInstallLock(): Promise<void> {
   await db.delete(settings).where(eq(settings.key, SETTING_KEYS.installed));
+}
+
+/** Last export timestamp; null when never exported or the database is down. */
+export async function getLastBackupAt(): Promise<string | null> {
+  return safeQuery(
+    'getLastBackupAt',
+    async (database) => {
+      const rows = await database
+        .select({ value: settings.value })
+        .from(settings)
+        .where(eq(settings.key, SETTING_KEYS.lastBackupAt))
+        .limit(1);
+      return rows[0]?.value ?? null;
+    },
+    null,
+  );
+}
+
+/** Stamps the export time behind the admin's backup reminder. */
+export async function markBackupExported(): Promise<void> {
+  await setSettings({ [SETTING_KEYS.lastBackupAt]: nowIso() });
 }
 
 // ─── Secrets ─────────────────────────────────────────────────────────────────

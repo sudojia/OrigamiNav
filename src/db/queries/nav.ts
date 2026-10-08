@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq, isNull, sql } from 'drizzle-orm';
 
 import { hostnameOf } from '@/lib/utils';
 import { categoryIconSvg } from '@/lib/category-icon-svg';
@@ -10,15 +10,19 @@ import {
   type NavCategory,
   type NavData,
   type NavTag,
+  type NavTagCount,
 } from '@/types/nav';
 
 import { safeQuery, type Database } from '../client';
 import { bookmarks, bookmarksTags, categories, tags } from '../schema';
 
 /**
- * Returns the nav payload in three flat queries. Hidden categories and
- * bookmarks are included only with `includeHidden` (the signed-in admin);
- * public payloads never contain them.
+ * Returns the nav payload in three flat queries. Trashed rows are always
+ * excluded; hidden categories and bookmarks are included only with
+ * `includeHidden` (the signed-in admin), so public payloads never contain them.
+ *
+ * Rows are column-limited: `search_index` is the single largest column and
+ * search now runs server-side, so it never reaches the client.
  */
 export async function getNavData(
   options: { includeHidden?: boolean } = {},
@@ -37,10 +41,44 @@ async function assemble(
   includeHidden: boolean,
 ): Promise<NavData> {
   const [categoryRows, bookmarkRows, linkRows, tagRows] = await Promise.all([
-    database.select().from(categories).orderBy(asc(categories.sortOrder)),
-    database.select().from(bookmarks).orderBy(asc(bookmarks.sortOrder)),
-    database.select().from(bookmarksTags),
-    database.select().from(tags).orderBy(asc(tags.name)),
+    database
+      .select({
+        id: categories.id,
+        name: categories.name,
+        slug: categories.slug,
+        description: categories.description,
+        icon: categories.icon,
+        color: categories.color,
+        hidden: categories.hidden,
+      })
+      .from(categories)
+      .where(isNull(categories.deletedAt))
+      // id breaks sort-order ties, so the order matches the search keyset.
+      .orderBy(asc(categories.sortOrder), asc(categories.id)),
+    database
+      .select({
+        id: bookmarks.id,
+        categoryId: bookmarks.categoryId,
+        title: bookmarks.title,
+        url: bookmarks.url,
+        description: bookmarks.description,
+        iconUrl: bookmarks.iconUrl,
+        hidden: bookmarks.hidden,
+      })
+      .from(bookmarks)
+      .where(isNull(bookmarks.deletedAt))
+      // id breaks sort-order ties, so the order matches the search keyset.
+      .orderBy(asc(bookmarks.sortOrder), asc(bookmarks.id)),
+    database
+      .select({
+        bookmarkId: bookmarksTags.bookmarkId,
+        tagId: bookmarksTags.tagId,
+      })
+      .from(bookmarksTags),
+    database
+      .select({ id: tags.id, name: tags.name, slug: tags.slug })
+      .from(tags)
+      .orderBy(asc(tags.name)),
   ]);
 
   const visibleCategories = includeHidden
@@ -73,7 +111,12 @@ async function assemble(
   }
 
   const bookmarksByCategory = new Map<string, NavBookmark[]>();
+  const tagCounts = new Map<string, number>();
   for (const row of visibleBookmarks) {
+    const bookmarkTags = tagsByBookmark.get(row.id) ?? [];
+    for (const tag of bookmarkTags) {
+      tagCounts.set(tag.id, (tagCounts.get(tag.id) ?? 0) + 1);
+    }
     const bookmark: NavBookmark = {
       id: row.id,
       title: row.title,
@@ -81,9 +124,8 @@ async function assemble(
       description: row.description,
       iconUrl: row.iconUrl,
       hostname: hostnameOf(row.url),
-      searchIndex: row.searchIndex,
       hidden: row.hidden,
-      tags: tagsByBookmark.get(row.id) ?? [],
+      tags: bookmarkTags,
     };
     const list = bookmarksByCategory.get(row.categoryId);
     if (list) list.push(bookmark);
@@ -106,10 +148,14 @@ async function assemble(
     })),
   );
 
+  const navTags: NavTagCount[] = [...tagById.values()]
+    // Only tags attached to at least one visible bookmark.
+    .filter((t) => linkedTagIds.has(t.id))
+    .map((t) => ({ ...t, count: tagCounts.get(t.id) ?? 0 }));
+
   return {
     categories: assembled,
-    // Only tags attached to at least one visible bookmark.
-    tags: [...tagById.values()].filter((t) => linkedTagIds.has(t.id)),
+    tags: navTags,
     available: true,
     generatedAt: new Date().toISOString(),
   };
@@ -144,5 +190,3 @@ export async function getTagUsage(): Promise<TagUsage[]> {
     [],
   );
 }
-
-/** Bookmark ids that currently exist, used to validate imports and reorders. */

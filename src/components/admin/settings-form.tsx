@@ -137,6 +137,7 @@ export function SettingsForm({
     cardColumns: number;
     categoryPreviewCount: number;
     categoryDeleteMode: string;
+    trashRetentionDays: number;
     sessionMaxDays: number;
     loginRateLimit: number;
     aiConcurrency: number;
@@ -185,6 +186,9 @@ export function SettingsForm({
         ? settings.categoryDeleteMode
         : 'protected',
     );
+  const [trashRetentionDays, setTrashRetentionDays] = useState(
+    String(settings.trashRetentionDays),
+  );
   const [sessionMaxDays, setSessionMaxDays] = useState(
     String(settings.sessionMaxDays),
   );
@@ -525,6 +529,11 @@ export function SettingsForm({
               name="categoryDeleteMode"
               value={categoryDeleteMode}
             />
+            <input
+              type="hidden"
+              name="trashRetentionDays"
+              value={trashRetentionDays}
+            />
             <input type="hidden" name="sessionMaxDays" value={sessionMaxDays} />
             <input
               type="hidden"
@@ -637,9 +646,11 @@ export function SettingsForm({
             <SecurityTab
               active={activeTab === 'security'}
               deleteMode={categoryDeleteMode}
+              trashRetentionDays={trashRetentionDays}
               sessionMaxDays={sessionMaxDays}
               loginRateLimit={loginRateLimit}
               onDeleteModeChange={setCategoryDeleteMode}
+              onTrashRetentionDaysChange={setTrashRetentionDays}
               onSessionMaxDaysChange={setSessionMaxDays}
               onLoginRateLimitChange={setLoginRateLimit}
             />
@@ -718,6 +729,7 @@ export function SettingsForm({
             ) : (
               <SecurityRail
                 deleteMode={categoryDeleteMode}
+                trashRetentionDays={Number(trashRetentionDays)}
                 sessionMaxDays={Number(sessionMaxDays)}
                 loginRateLimit={Number(loginRateLimit)}
               />

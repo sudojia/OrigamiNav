@@ -1,6 +1,9 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+/** Shared by the backup reminder and the recycle-bin retention window. */
+export const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }

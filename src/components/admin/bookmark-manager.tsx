@@ -6,6 +6,7 @@ import {
   LayoutGrid,
   Link2,
   List,
+  LoaderCircle,
   Pencil,
   Plus,
   Search,
@@ -16,8 +17,9 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import {
   memo,
   useCallback,
-  useDeferredValue,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   useTransition,
@@ -29,7 +31,10 @@ import {
   deleteBookmarkAction,
   reorderBookmarksAction,
 } from '@/actions/bookmark';
-import { BookmarkFormDialog } from '@/components/admin/bookmark-form-dialog';
+import {
+  BookmarkFormDialog,
+  type BookmarkCategoryOption,
+} from '@/components/admin/bookmark-form-dialog';
 import { Favicon } from '@/components/nav/favicon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -48,7 +53,6 @@ import {
 } from '@/components/ui/tooltip';
 import { colorSwatchClass } from '@/lib/category-color';
 import { resolveCategoryIcon } from '@/lib/category-meta';
-import { tokenize } from '@/lib/filter';
 import { cn, formatDate, hostnameOf, truncate } from '@/lib/utils';
 
 import type { AdminBookmark, AdminBookmarkGroup } from '@/db/queries/bookmarks';
@@ -56,7 +60,7 @@ import { ConfirmDeleteDialog } from './confirm-delete-dialog';
 import { SortableList } from './dnd-list';
 import { PageHeader } from './page-header';
 
-/** Bookmark manager with list and card views, filtering and drag-sorting. */
+/** Bookmark manager with list and card views, server-side search and drag-sorting. */
 
 type EditingTarget =
   | { mode: 'new'; categoryId: string }
@@ -68,6 +72,8 @@ type ViewMode = 'list' | 'cards';
 const VIEW_STORAGE_KEY = 'origaminav.admin.bookmark-view';
 const VIEW_EVENT = 'origaminav:viewchange';
 const ALL_CATEGORIES = '__all__';
+/** Typing pause before the search term is pushed to the URL. */
+const SEARCH_DEBOUNCE_MS = 250;
 
 /** Subscribes to the stored view preference. */
 function subscribeToViewPreference(onChange: () => void): () => void {
@@ -93,9 +99,18 @@ function readViewPreferenceOnServer(): ViewMode {
 
 export function BookmarkManager({
   groups,
+  categories,
+  query,
+  truncated,
   aiEnabled,
 }: {
   groups: AdminBookmarkGroup[];
+  /** Every category, for the pickers; independent of the current search. */
+  categories: BookmarkCategoryOption[];
+  /** Search term the server filtered by; '' when browsing everything. */
+  query: string;
+  /** True when the search hit the server-side row cap. */
+  truncated: boolean;
   /** Whether AI is configured; drives the form's fill button. */
   aiEnabled: boolean;
 }) {
@@ -103,7 +118,6 @@ export function BookmarkManager({
   const searchParams = useSearchParams();
   const [editing, setEditing] = useState<EditingTarget>(null);
   const [deleting, setDeleting] = useState<AdminBookmark | null>(null);
-  const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState(ALL_CATEGORIES);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const view = useSyncExternalStore(
@@ -111,7 +125,7 @@ export function BookmarkManager({
     readViewPreference,
     readViewPreferenceOnServer,
   );
-  const [, startTransition] = useTransition();
+  const [pending, startTransition] = useTransition();
 
   const refresh = () => startTransition(() => router.refresh());
 
@@ -140,29 +154,60 @@ export function BookmarkManager({
     }
   }
 
-  // Filtering runs against the deferred query, so typing stays responsive
-  // while the (memoized) rows update at a lower priority.
-  const deferredQuery = useDeferredValue(query);
-  const terms = useMemo(() => tokenize(deferredQuery), [deferredQuery]);
-  const filtering = terms.length > 0;
+  // ── Search runs on the server, keyed off the URL ──────────────────────────
+  // The input is uncontrolled on purpose. A controlled `value` gets rewritten to
+  // the server's last echoed term, which drops keystrokes typed while a
+  // navigation is in flight ("g" + "r" collapsing back to "g"). The URL stays
+  // the source of truth for the filter; the DOM owns the caret.
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [hasSearchText, setHasSearchText] = useState(query !== '');
+  const [pendingTerm, setPendingTerm] = useState(query);
+  // Last keystroke, last query value this effect handled, and whether the user
+  // has typed since the URL last matched the box.
+  const typedTermRef = useRef(query);
+  const seenQueryRef = useRef(query);
+  const typedSinceSyncRef = useRef(false);
+
+  useEffect(() => {
+    if (seenQueryRef.current === query) return;
+    seenQueryRef.current = query;
+    // Never rewrite a box the user has typed into since the last sync: that is
+    // our own navigation echoing back, and overwriting it drops keystrokes
+    // ("g" + "r" collapsing to "g"). A change arriving after the typing has
+    // settled is an external navigation, so the box follows it.
+    if (typedSinceSyncRef.current) return;
+    typedTermRef.current = query;
+    setPendingTerm(query);
+    setHasSearchText(query !== '');
+    const input = searchInputRef.current;
+    if (input) input.value = query;
+  }, [query]);
+
+  useEffect(() => {
+    const trimmed = pendingTerm.trim();
+    if (trimmed === query) return;
+    const timer = setTimeout(() => {
+      // Reads the live URL so the ?edit= deep link and any other param survive.
+      const params = new URLSearchParams(window.location.search);
+      if (trimmed) params.set('q', trimmed);
+      else params.delete('q');
+      const suffix = params.toString();
+      startTransition(() =>
+        router.replace(suffix ? `?${suffix}` : '?', { scroll: false }),
+      );
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [pendingTerm, query, router]);
+
+  // The server already filtered; only the category filter is applied here.
+  const filtering = query !== '';
 
   const visibleGroups = useMemo(() => {
-    return groups
-      .filter(
-        (group) =>
-          categoryFilter === ALL_CATEGORIES || group.category.id === categoryFilter,
-      )
-      .map((group) => {
-        if (!filtering) return group;
-        return {
-          ...group,
-          bookmarks: group.bookmarks.filter((bookmark) =>
-            terms.every((term) => bookmark.searchIndex.includes(term)),
-          ),
-        };
-      })
-      .filter((group) => !filtering || group.bookmarks.length > 0);
-  }, [groups, categoryFilter, filtering, terms]);
+    return groups.filter(
+      (group) =>
+        categoryFilter === ALL_CATEGORIES || group.category.id === categoryFilter,
+    );
+  }, [groups, categoryFilter]);
 
   const totalVisible = visibleGroups.reduce(
     (sum, group) => sum + group.bookmarks.length,
@@ -195,6 +240,15 @@ export function BookmarkManager({
       return next;
     });
 
+  /** Clears the box and the filter; the DOM value is reset directly. */
+  const clearSearch = useCallback(() => {
+    if (searchInputRef.current) searchInputRef.current.value = '';
+    typedTermRef.current = '';
+    typedSinceSyncRef.current = false;
+    setPendingTerm('');
+    setHasSearchText(false);
+  }, []);
+
   // Stable identities so the memoized rows skip re-rendering whenever this
   // component re-renders for an unrelated reason (typing, dialogs, collapse).
   const openEditor = useCallback((bookmark: AdminBookmark) => {
@@ -205,7 +259,8 @@ export function BookmarkManager({
     setDeleting(bookmark);
   }, []);
 
-  if (groups.length === 0) {
+  // No category at all is the only case that has nothing to search either.
+  if (categories.length === 0) {
     return (
       <div className="space-y-4">
         <ManagerHeader />
@@ -228,18 +283,35 @@ export function BookmarkManager({
             className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
           />
           <Input
+            ref={searchInputRef}
             type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="筛选标题、链接、描述或标签…"
-            aria-label="筛选书签"
+            defaultValue={query}
+            onChange={(event) => {
+              typedTermRef.current = event.target.value;
+              typedSinceSyncRef.current = true;
+              setPendingTerm(event.target.value);
+              setHasSearchText(event.target.value !== '');
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && hasSearchText) {
+                event.preventDefault();
+                clearSearch();
+              }
+            }}
+            placeholder="搜索标题、链接、描述或标签…"
+            aria-label="搜索书签"
             className="h-8 pr-7 pl-8 text-xs"
           />
-          {query ? (
+          {pending ? (
+            <LoaderCircle
+              aria-hidden
+              className="absolute top-1/2 right-1.5 size-3.5 -translate-y-1/2 animate-spin text-muted-foreground"
+            />
+          ) : hasSearchText ? (
             <button
               type="button"
-              onClick={() => setQuery('')}
-              aria-label="清除筛选"
+              onClick={clearSearch}
+              aria-label="清除搜索"
               className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
             >
               <X className="size-3.5" />
@@ -255,11 +327,18 @@ export function BookmarkManager({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_CATEGORIES}>全部分类</SelectItem>
-              {groups.map((group) => (
-                <SelectItem key={group.category.id} value={group.category.id}>
-                  {group.category.name}（{group.bookmarks.length}）
-                </SelectItem>
-              ))}
+              {categories.map((category) => {
+                // Counts come from the current result set, not the category row.
+                const matched = groups.find(
+                  (group) => group.category.id === category.id,
+                );
+                return (
+                  <SelectItem key={category.id} value={category.id}>
+                    {category.name}
+                    {matched ? `（${matched.bookmarks.length}）` : ''}
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
 
@@ -289,7 +368,7 @@ export function BookmarkManager({
                 categoryId:
                   categoryFilter !== ALL_CATEGORIES
                     ? categoryFilter
-                    : (groups[0]?.category.id ?? ''),
+                    : (categories[0]?.id ?? ''),
               })
             }
           >
@@ -301,7 +380,10 @@ export function BookmarkManager({
 
       {filtering ? (
         <p className="text-xs text-muted-foreground" role="status">
-          筛选出 {totalVisible} 条书签。筛选状态下不可拖拽排序，清除筛选后恢复。
+          搜索「{query}」命中 {totalVisible} 条书签。
+          {truncated
+            ? '结果过多，仅显示前一部分，请补充关键词。'
+            : '搜索状态下不可拖拽排序，清除搜索后恢复。'}
         </p>
       ) : null}
 
@@ -406,10 +488,7 @@ export function BookmarkManager({
 
       {editing ? (
         <BookmarkFormDialog
-          categories={groups.map((group) => ({
-            id: group.category.id,
-            name: group.category.name,
-          }))}
+          categories={categories}
           categoryId={
             editing.mode === 'new' ? editing.categoryId : editing.bookmark.categoryId
           }
@@ -423,7 +502,8 @@ export function BookmarkManager({
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title={<>删除书签「{deleting?.title}」？</>}
-        description="标签关联会一并移除，此操作不可撤销。"
+        description="书签会移入回收站，可在保留期内恢复。"
+        confirmLabel="移入回收站"
         onConfirm={handleDelete}
       />
     </div>

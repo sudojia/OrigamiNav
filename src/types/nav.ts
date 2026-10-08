@@ -8,6 +8,9 @@ export type NavTag = {
   slug: string;
 };
 
+/** Nav tag carrying its bookmark count, for the filter bar. */
+export type NavTagCount = NavTag & { count: number };
+
 export type NavBookmark = {
   id: string;
   title: string;
@@ -15,8 +18,6 @@ export type NavBookmark = {
   description: string;
   iconUrl: string | null;
   hostname: string;
-  /** Precomputed search text: title, description, pinyin, domain, tag names. */
-  searchIndex: string;
   /** True only in the admin payload; hidden rows are absent from public data. */
   hidden: boolean;
   tags: NavTag[];
@@ -39,7 +40,7 @@ export type NavCategory = {
 
 export type NavData = {
   categories: NavCategory[];
-  tags: NavTag[];
+  tags: NavTagCount[];
   /** False when the database was unreachable. */
   available: boolean;
   generatedAt: string;
@@ -50,6 +51,16 @@ export const EMPTY_NAV: NavData = {
   tags: [],
   available: false,
   generatedAt: new Date(0).toISOString(),
+};
+
+/** One page of filtered results for the search box and command palette. */
+export type NavSearchResult = {
+  /** Matched categories, each holding only this page's matched bookmarks. */
+  categories: NavCategory[];
+  /** True when this page was full, so a next page may exist. */
+  truncated: boolean;
+  /** Opaque cursor for the next page; null on the last page. */
+  cursor: string | null;
 };
 
 /** Search engines whose ownership token renders as a `<meta name>` tag. */
@@ -151,6 +162,8 @@ export type SiteSettings = {
   categoryPreviewCount: number;
   /** Behaviour when deleting a category that still holds bookmarks. */
   categoryDeleteMode: CategoryDeleteMode;
+  /** Days a trashed category or bookmark is kept before the next purge; 0 = keep. */
+  trashRetentionDays: number;
   /** Session cookie lifetime in days, admin-configurable. */
   sessionMaxDays: number;
   /** Login attempts per minute before throttling, admin-configurable. */
@@ -278,6 +291,15 @@ export function isCategoryPreviewCount(value: unknown): boolean {
   );
 }
 
+/** Preset recycle-bin lifetimes in days; 0 keeps trashed rows until purged. */
+export const TRASH_RETENTION_DAYS = [7, 30, 90, 0] as const;
+export const DEFAULT_TRASH_RETENTION_DAYS = 30;
+
+export function isTrashRetentionDays(value: unknown): boolean {
+  if (typeof value === 'string' && value.trim() === '') return false;
+  return (TRASH_RETENTION_DAYS as readonly number[]).includes(Number(value));
+}
+
 export const DEFAULT_SETTINGS: SiteSettings = {
   siteName: 'OrigamiNav',
   tagline: '把散落的书签折进一张纸',
@@ -300,6 +322,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   cardColumns: 5,
   categoryPreviewCount: 30,
   categoryDeleteMode: 'protected',
+  trashRetentionDays: DEFAULT_TRASH_RETENTION_DAYS,
   sessionMaxDays: DEFAULT_SESSION_MAX_DAYS,
   loginRateLimit: DEFAULT_LOGIN_RATE_LIMIT,
   aiEnabled: false,

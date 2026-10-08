@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { asc, sql } from 'drizzle-orm';
+import { asc, isNull, sql } from 'drizzle-orm';
 
 import { newId, nowIso } from '@/lib/ids';
 import { buildSearchIndex } from '@/lib/search-index';
@@ -12,7 +12,7 @@ import { bookmarks, bookmarksTags, categories, tags } from '../schema';
 /** Multi-row insert chunk size; keeps statements under pg's parameter cap. */
 const INSERT_CHUNK = 500;
 
-/** Full JSON backup of categories, bookmarks, tags and links. */
+/** Full JSON backup of categories, bookmarks, tags and links; live rows only. */
 
 export type ExportBookmark = {
   title: string;
@@ -48,8 +48,16 @@ export async function exportAllData(): Promise<ExportPayload | null> {
     'exportAllData',
     async (database) => {
       const [categoryRows, bookmarkRows, linkRows, tagRows] = await Promise.all([
-        database.select().from(categories).orderBy(asc(categories.sortOrder)),
-        database.select().from(bookmarks).orderBy(asc(bookmarks.sortOrder)),
+        database
+          .select()
+          .from(categories)
+          .where(isNull(categories.deletedAt))
+          .orderBy(asc(categories.sortOrder)),
+        database
+          .select()
+          .from(bookmarks)
+          .where(isNull(bookmarks.deletedAt))
+          .orderBy(asc(bookmarks.sortOrder)),
         database.select().from(bookmarksTags),
         database.select().from(tags),
       ]);
@@ -101,7 +109,10 @@ export async function exportAllData(): Promise<ExportPayload | null> {
   );
 }
 
-/** Wipes all content and rebuilds it from a payload in one transaction. */
+/**
+ * Wipes all content and rebuilds it from a payload in one transaction. The
+ * recycle bin is wiped too: its rows live in the same tables.
+ */
 export async function replaceAllData(
   payloadCategories: ExportCategory[],
 ): Promise<{ categories: number; bookmarks: number }> {
@@ -232,7 +243,7 @@ export async function replaceAllData(
   });
 }
 
-/** Total category and bookmark counts. */
+/** Total live category and bookmark counts. */
 export async function countContent(): Promise<{
   categories: number;
   bookmarks: number;
@@ -241,8 +252,14 @@ export async function countContent(): Promise<{
     'countContent',
     async (database) => {
       const [c, b] = await Promise.all([
-        database.select({ n: sql<number>`count(*)::int` }).from(categories),
-        database.select({ n: sql<number>`count(*)::int` }).from(bookmarks),
+        database
+          .select({ n: sql<number>`count(*)::int` })
+          .from(categories)
+          .where(isNull(categories.deletedAt)),
+        database
+          .select({ n: sql<number>`count(*)::int` })
+          .from(bookmarks)
+          .where(isNull(bookmarks.deletedAt)),
       ]);
       return { categories: c[0]?.n ?? 0, bookmarks: b[0]?.n ?? 0 };
     },
