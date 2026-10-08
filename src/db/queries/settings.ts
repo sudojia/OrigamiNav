@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { cache } from 'react';
 
 import {
@@ -9,13 +9,18 @@ import {
   clampLoginRateLimit,
   clampSessionMaxDays,
   DEFAULT_SETTINGS,
+  emptyVerifications,
   isCategoryDeleteMode,
   isCategoryPreviewCount,
   isFaviconMode,
   isIconService,
   isSkinId,
+  VERIFICATION_TARGETS,
+  verificationKey,
   type SiteSettings,
+  type VerificationId,
 } from '@/types/nav';
+import { normalizeSiteUrl } from '@/lib/seo';
 import { clampInt } from '@/lib/utils';
 
 import { db, safeQuery } from '../client';
@@ -28,6 +33,13 @@ export const SETTING_KEYS = {
   tagline: 'tagline',
   description: 'description',
   logoUrl: 'logo_url',
+  siteUrl: 'site_url',
+  seoIndexing: 'seo_indexing',
+  analyticsGaId: 'analytics_ga_id',
+  analyticsBaiduId: 'analytics_baidu_id',
+  analyticsUmamiUrl: 'analytics_umami_url',
+  analyticsUmamiId: 'analytics_umami_id',
+  indexNowKey: 'indexnow_key',
   faviconMode: 'favicon_mode',
   faviconUrl: 'favicon_url',
   faviconVersion: 'favicon_version',
@@ -54,6 +66,8 @@ export const SECRET_KEYS = {
   sessionSecret: 'session_secret',
   // Extension bearer token; stored verbatim so the admin can view and rotate it.
   extToken: 'ext_token',
+  // Baidu URL-submission token; a write credential for the site.
+  baiduPushToken: 'baidu_push_token',
 } as const;
 
 const CARD_COLUMNS_MIN = 1;
@@ -100,6 +114,17 @@ export const getSiteSettings = cache(async function getSiteSettings(): Promise<S
   }, DEFAULT_SETTINGS);
 });
 
+/** Stored verification codes; empty for every engine that was never configured. */
+function verificationsFromRows(
+  map: Map<string, string>,
+): Record<VerificationId, string> {
+  const codes = emptyVerifications();
+  for (const target of VERIFICATION_TARGETS) {
+    codes[target.id] = map.get(verificationKey(target.id)) ?? '';
+  }
+  return codes;
+}
+
 function settingsFromRows(
   rows: Array<{ key: string; value: string }>,
   aiKeyExists: boolean,
@@ -115,6 +140,18 @@ function settingsFromRows(
     tagline: map.get(SETTING_KEYS.tagline) ?? DEFAULT_SETTINGS.tagline,
     description: map.get(SETTING_KEYS.description) ?? DEFAULT_SETTINGS.description,
     logoUrl: map.get(SETTING_KEYS.logoUrl) ?? null,
+    // An empty setting falls back to the build-time env base URL.
+    siteUrl:
+      normalizeSiteUrl(map.get(SETTING_KEYS.siteUrl)) ??
+      normalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL),
+    seoIndexing: map.get(SETTING_KEYS.seoIndexing) !== '0',
+    verifications: verificationsFromRows(map),
+    analyticsGaId: map.get(SETTING_KEYS.analyticsGaId) ?? '',
+    analyticsBaiduId: map.get(SETTING_KEYS.analyticsBaiduId) ?? '',
+    analyticsUmamiUrl:
+      normalizeSiteUrl(map.get(SETTING_KEYS.analyticsUmamiUrl)) ?? '',
+    analyticsUmamiId: map.get(SETTING_KEYS.analyticsUmamiId) ?? '',
+    indexNowKey: map.get(SETTING_KEYS.indexNowKey) ?? '',
     faviconMode: isFaviconMode(faviconMode)
       ? faviconMode
       : DEFAULT_SETTINGS.faviconMode,
@@ -167,6 +204,12 @@ export async function setSettings(
 
 export async function deleteSetting(key: string): Promise<void> {
   await db.delete(settings).where(eq(settings.key, key));
+}
+
+/** Deletes several settings keys in one statement. */
+export async function deleteSettings(keys: string[]): Promise<void> {
+  if (!keys.length) return;
+  await db.delete(settings).where(inArray(settings.key, keys));
 }
 
 /** Atomically claims the install lock; true only for the winning writer. */

@@ -6,6 +6,7 @@ import {
   KeyRound,
   Palette as PaletteIcon,
   Puzzle,
+  Search,
   Settings2,
   Type,
 } from 'lucide-react';
@@ -31,11 +32,13 @@ import {
   isFaviconMode,
   isIconService,
   isSkinId,
+  VERIFICATION_TARGETS,
   type AiProtocol,
   type CategoryDeleteMode,
   type FaviconMode,
   type IconService,
   type SkinId,
+  type VerificationId,
 } from '@/types/nav';
 
 import { SubmitButton, useActionFeedback } from './form-primitives';
@@ -55,10 +58,11 @@ import {
 import { ExtensionRail, ExtensionTab } from './settings/extension-tab';
 import { GeneralTab, IdentityPreview } from './settings/general-tab';
 import { SecurityTab, SecurityRail } from './settings/security-tab';
+import { SeoRail, SeoTab } from './settings/seo-tab';
 
 export type { AiStatus };
 
-type TabId = 'general' | 'appearance' | 'ai' | 'security' | 'extension';
+type TabId = 'general' | 'appearance' | 'ai' | 'security' | 'extension' | 'seo';
 
 const TABS: Array<{
   id: TabId;
@@ -102,6 +106,13 @@ const TABS: Array<{
     hue: 'bg-chart-2/10 text-chart-2',
     Icon: Puzzle,
   },
+  {
+    id: 'seo',
+    label: 'SEO',
+    hint: '收录验证与站点地图',
+    hue: 'bg-chart-1/10 text-chart-1',
+    Icon: Search,
+  },
 ];
 
 /** Site settings as a tabbed form with a live preview rail. */
@@ -109,6 +120,7 @@ export function SettingsForm({
   settings,
   aiStatus,
   extToken,
+  hasBaiduToken,
   untaggedCount,
 }: {
   settings: {
@@ -128,9 +140,18 @@ export function SettingsForm({
     sessionMaxDays: number;
     loginRateLimit: number;
     aiConcurrency: number;
+    siteUrl: string | null;
+    seoIndexing: boolean;
+    verifications: Record<VerificationId, string>;
+    analyticsGaId: string;
+    analyticsBaiduId: string;
+    analyticsUmamiUrl: string;
+    analyticsUmamiId: string;
+    indexNowKey: string;
   };
   aiStatus: AiStatus;
   extToken: string | null;
+  hasBaiduToken: boolean;
   untaggedCount: number;
 }) {
   const router = useRouter();
@@ -170,6 +191,22 @@ export function SettingsForm({
   const [loginRateLimit, setLoginRateLimit] = useState(
     String(settings.loginRateLimit),
   );
+
+  const [siteUrl, setSiteUrl] = useState(settings.siteUrl ?? '');
+  const [seoIndexing, setSeoIndexing] = useState(settings.seoIndexing);
+  const [verifications, setVerifications] = useState(settings.verifications);
+  const [analyticsGaId, setAnalyticsGaId] = useState(settings.analyticsGaId);
+  const [analyticsBaiduId, setAnalyticsBaiduId] = useState(
+    settings.analyticsBaiduId,
+  );
+  const [analyticsUmamiUrl, setAnalyticsUmamiUrl] = useState(
+    settings.analyticsUmamiUrl,
+  );
+  const [analyticsUmamiId, setAnalyticsUmamiId] = useState(
+    settings.analyticsUmamiId,
+  );
+  // Push token field starts empty; blank keeps the stored token.
+  const [baiduPushToken, setBaiduPushToken] = useState('');
 
   // API key field starts empty; blank keeps the stored key.
   const [aiProtocol, setAiProtocol] = useState<AiProtocol>(
@@ -325,6 +362,10 @@ export function SettingsForm({
     if (Number(next) < Number(aiTagMin)) setAiTagMin(next);
   }
 
+  function handleVerificationChange(id: VerificationId, value: string) {
+    setVerifications((current) => ({ ...current, [id]: value }));
+  }
+
   async function handleClearKey() {
     const result = await clearAiKeyAction();
     if (result.ok) {
@@ -406,6 +447,13 @@ export function SettingsForm({
       title: '浏览器扩展',
       description: '为浏览器扩展生成访问令牌，在任意网页一键收藏。',
     },
+    seo: {
+      Icon: Search,
+      hue: 'bg-chart-1/10 text-chart-1',
+      title: 'SEO',
+      description:
+        '站点地址、搜索引擎收录与验证、站点地图、访问统计与主动推送。',
+    },
   };
   const head = HEADS[activeTab];
 
@@ -421,7 +469,7 @@ export function SettingsForm({
       <div
         role="tablist"
         aria-label="站点设置分类"
-        className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5"
+        className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-6"
       >
         {TABS.map(({ id, label, hint, hue, Icon }) => {
           const active = activeTab === id;
@@ -507,6 +555,11 @@ export function SettingsForm({
               type="hidden"
               name="aiConcurrency"
               value={aiConcurrency}
+            />
+            <input
+              type="hidden"
+              name="seoIndexing"
+              value={seoIndexing ? '1' : '0'}
             />
 
             <TabCardHead {...head} />
@@ -596,6 +649,28 @@ export function SettingsForm({
               initialToken={extToken}
             />
 
+            <SeoTab
+              active={activeTab === 'seo'}
+              siteUrl={siteUrl}
+              seoIndexing={seoIndexing}
+              verifications={verifications}
+              analyticsGaId={analyticsGaId}
+              analyticsBaiduId={analyticsBaiduId}
+              analyticsUmamiUrl={analyticsUmamiUrl}
+              analyticsUmamiId={analyticsUmamiId}
+              baiduPushToken={baiduPushToken}
+              initialIndexNowKey={settings.indexNowKey}
+              hasBaiduToken={hasBaiduToken}
+              onSiteUrlChange={setSiteUrl}
+              onSeoIndexingChange={setSeoIndexing}
+              onVerificationChange={handleVerificationChange}
+              onAnalyticsGaIdChange={setAnalyticsGaId}
+              onAnalyticsBaiduIdChange={setAnalyticsBaiduId}
+              onAnalyticsUmamiUrlChange={setAnalyticsUmamiUrl}
+              onAnalyticsUmamiIdChange={setAnalyticsUmamiId}
+              onBaiduPushTokenChange={setBaiduPushToken}
+            />
+
             {/* ── Footer action bar ──────────────────────────────────── */}
             <div className="flex items-center justify-end border-t border-border/60 bg-muted/30 px-5 py-3.5">
               <SubmitButton className="shrink-0">
@@ -630,6 +705,16 @@ export function SettingsForm({
               <LayoutRail columns={Number(cardColumns)} />
             ) : activeTab === 'extension' ? (
               <ExtensionRail token={extToken} />
+            ) : activeTab === 'seo' ? (
+              <SeoRail
+                siteUrl={siteUrl}
+                seoIndexing={seoIndexing}
+                verificationCount={
+                  VERIFICATION_TARGETS.filter(
+                    (target) => verifications[target.id] !== '',
+                  ).length
+                }
+              />
             ) : (
               <SecurityRail
                 deleteMode={categoryDeleteMode}

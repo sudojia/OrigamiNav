@@ -5,6 +5,12 @@ import { Toaster } from 'sonner';
 import { Providers } from '@/components/providers';
 import { getSiteSettings } from '@/db/queries/settings';
 import {
+  pageSocialMetadata,
+  siteDescription,
+  siteTitle,
+  verificationMetadata,
+} from '@/lib/seo';
+import {
   buildAdminModeInitScript,
   buildSkinInitScript,
 } from '@/lib/theme-init';
@@ -20,15 +26,12 @@ export const viewport: Viewport = {
 
 export async function generateMetadata(): Promise<Metadata> {
   const settings = await getSiteSettings();
-  const title = settings.siteName || 'OrigamiNav';
+  const title = siteTitle(settings);
   // Tab title is site name plus tagline; sub-pages use the plain-name template.
   const defaultTitle = settings.tagline
     ? `${title} - ${settings.tagline}`
     : title;
-  const description =
-    settings.description ||
-    settings.tagline ||
-    '一个自托管的开源书签导航站，只依赖一个标准 Postgres 连接串。';
+  const description = siteDescription(settings);
 
   // Uploaded icon URL includes a version query.
   const faviconHref =
@@ -38,10 +41,12 @@ export async function generateMetadata(): Promise<Metadata> {
         ? settings.faviconUrl
         : null;
 
+  // No `path`: the layout covers every route, so canonical and og:url belong to
+  // the pages that know their own URL.
+  const social = pageSocialMetadata(settings, { title, description });
+
   return {
-    metadataBase: process.env.NEXT_PUBLIC_SITE_URL
-      ? new URL(process.env.NEXT_PUBLIC_SITE_URL)
-      : undefined,
+    metadataBase: settings.siteUrl ? new URL(settings.siteUrl) : undefined,
     title: {
       default: defaultTitle,
       template: `%s · ${title}`,
@@ -50,20 +55,12 @@ export async function generateMetadata(): Promise<Metadata> {
     applicationName: title,
     keywords: ['书签', '导航', 'bookmark', 'navigation', 'self-hosted'],
     icons: faviconHref ? { icon: faviconHref, shortcut: faviconHref } : undefined,
-    openGraph: {
-      title,
-      description,
-      type: 'website',
-      siteName: title,
-      ...(settings.logoUrl ? { images: [settings.logoUrl] } : {}),
-    },
-    twitter: {
-      card: 'summary',
-      title,
-      description,
-      ...(settings.logoUrl ? { images: [settings.logoUrl] } : {}),
-    },
-    robots: { index: true, follow: true },
+    robots: settings.seoIndexing
+      ? { index: true, follow: true }
+      : { index: false, follow: false },
+    verification: verificationMetadata(settings),
+    openGraph: social.openGraph,
+    twitter: social.twitter,
   };
 }
 

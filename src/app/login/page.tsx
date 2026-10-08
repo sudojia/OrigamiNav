@@ -7,7 +7,10 @@ import { isAdmin } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata = { title: '登录' };
+export const metadata = {
+  title: '登录',
+  robots: { index: false, follow: false },
+};
 
 export default async function LoginPage({
   searchParams,

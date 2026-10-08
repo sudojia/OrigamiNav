@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { cache } from 'react';
 
 import { newId, newRow, nowIso } from '@/lib/ids';
 import { slugifyUnique } from '@/lib/pinyin';
@@ -35,6 +36,43 @@ export async function listCategoriesWithCounts(): Promise<CategoryWithCount[]> {
         bookmarkCount: counts.get(row.id) ?? 0,
       }));
     },
+    [],
+  );
+}
+
+/**
+ * Finds a category by its URL slug; memoized per request so a category page and
+ * its metadata share one query.
+ */
+export const getCategoryBySlug = cache(
+  async function getCategoryBySlug(slug: string): Promise<Category | null> {
+    return safeQuery(
+      'getCategoryBySlug',
+      async (database) => {
+        const rows = await database
+          .select()
+          .from(categories)
+          .where(eq(categories.slug, slug))
+          .limit(1);
+        return rows[0] ?? null;
+      },
+      null,
+    );
+  },
+);
+
+/** Slugs of public categories with their update times, for the sitemap and pushes. */
+export async function listVisibleCategorySlugs(): Promise<
+  Array<{ slug: string; updatedAt: string }>
+> {
+  return safeQuery(
+    'listVisibleCategorySlugs',
+    (database) =>
+      database
+        .select({ slug: categories.slug, updatedAt: categories.updatedAt })
+        .from(categories)
+        .where(eq(categories.hidden, false))
+        .orderBy(asc(categories.sortOrder)),
     [],
   );
 }

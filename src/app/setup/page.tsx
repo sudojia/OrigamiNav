@@ -7,7 +7,10 @@ import { getSiteSettings } from '@/db/queries/settings';
 // Always render on request.
 export const dynamic = 'force-dynamic';
 
-export const metadata = { title: '初始化站点' };
+export const metadata = {
+  title: '初始化站点',
+  robots: { index: false, follow: false },
+};
 
 export default async function SetupPage() {
   // Redirect if the site is installed or an admin exists.

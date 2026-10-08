@@ -43,6 +43,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { buildHighlightRegex, filterNav, tokenize } from '@/lib/filter';
+import { categoryHref } from '@/lib/nav-links';
 import { PROJECT_START_YEAR, PROJECT_URL } from '@/lib/project-links';
 import { cn, truncate } from '@/lib/utils';
 import type { NavBookmark, NavData, SiteSettings } from '@/types/nav';
@@ -66,13 +67,16 @@ function copyrightYearLabel(currentYear: number): string {
     : String(PROJECT_START_YEAR);
 }
 
-/** Owns all client-side state for the public page; refreshes on tab re-activation. */
+/** Owns all client-side state for the public pages; refreshes on tab re-activation. */
 export function NavClient({
   initialNav,
   settings,
+  pinnedSlug,
 }: {
   initialNav: NavData;
   settings: SiteSettings;
+  /** Set by a category page; null on the nav page. */
+  pinnedSlug: string | null;
 }) {
   const [nav, setNav] = useState<NavData>(initialNav);
   const [query, setQuery] = useState('');
@@ -86,8 +90,9 @@ export function NavClient({
   const [editing, setEditing] = useState<NavBookmark | null>(null);
   const [creating, setCreating] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  // Category pinned by the ?category= deep link (null = browse everything).
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  // Category pinned by the server (category page) or by the ?category= deep
+  // link (null = browse everything).
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(pinnedSlug);
 
   const searchRef = useRef<HTMLInputElement>(null);
   const headerRef = useRef<HTMLElement>(null);
@@ -113,9 +118,10 @@ export function NavClient({
     return map;
   }, [filtered.categories]);
 
-  // ?category=<slug> deep link: read on mount and on back/forward; Link
-  // clicks set state directly, so no router subscription is needed.
+  // ?category=<slug> in-page view: read on mount and on back/forward. A
+  // category page pins its slug on the server, so it skips this entirely.
   useEffect(() => {
+    if (pinnedSlug) return;
     const sync = () =>
       setSelectedSlug(
         new URLSearchParams(window.location.search).get('category'),
@@ -123,9 +129,9 @@ export function NavClient({
     sync();
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
-  }, []);
+  }, [pinnedSlug]);
 
-  /** Category pinned by ?category=; null when browsing everything. */
+  /** Category pinned by the server or the deep link; null when browsing everything. */
   const selectedCategory = useMemo(
     () =>
       selectedSlug
@@ -224,9 +230,10 @@ export function NavClient({
   const scrollToCategory = useCallback(
     (slug: string) => {
       const el = sectionRefs.current.get(slug);
-      // Category view renders one section; other jumps switch views instead.
+      // A pinned view renders one section; other jumps switch pages instead.
       if (!el) {
-        router.push(`/?category=${slug}`);
+        const category = nav.categories.find((item) => item.slug === slug);
+        if (category) router.push(categoryHref(category));
         return;
       }
       const reduce = window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -234,7 +241,7 @@ export function NavClient({
       el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
       setActiveId(el.dataset.categoryId ?? null);
     },
-    [router],
+    [nav.categories, router],
   );
 
   // ── Scroll-spy ─────────────────────────────────────────────────────────────
@@ -557,22 +564,23 @@ export function NavClient({
 
       {/* ── Body ───────────────────────────────────────────────────────────── */}
       <div className="mx-auto flex max-w-7xl gap-8 px-4 py-8 sm:px-6">
-        {!selectedCategory ? (
-          <aside className="hidden w-48 shrink-0 lg:block">
-            <NavSidebar
-              categories={filtered.categories}
-              activeId={activeId}
-              onSelect={scrollToCategory}
-              counts={counts}
-            />
-          </aside>
-        ) : null}
+        <aside className="hidden w-48 shrink-0 lg:block">
+          <NavSidebar
+            categories={filtered.categories}
+            activeId={activeId}
+            onSelect={scrollToCategory}
+            counts={counts}
+            // A pinned view has no in-page section for the other categories.
+            hrefFor={pinnedSlug ? categoryHref : undefined}
+          />
+        </aside>
 
         <main className="min-w-0 flex-1">
           <NavChipBar
             categories={filtered.categories}
             activeId={activeId}
             onSelect={scrollToCategory}
+            hrefFor={pinnedSlug ? categoryHref : undefined}
           />
 
           {!nav.available ? (
@@ -682,8 +690,14 @@ export function NavClient({
                     </div>
                     {capped ? (
                       <Link
-                        href={`/?category=${category.slug}`}
-                        onClick={() => setSelectedSlug(category.slug)}
+                        // Visible categories have a real page; hidden ones only
+                        // exist as the admin-only in-page view.
+                        href={categoryHref(category)}
+                        onClick={
+                          category.hidden
+                            ? () => setSelectedSlug(category.slug)
+                            : undefined
+                        }
                         className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
                       >
                         查看全部{' '}

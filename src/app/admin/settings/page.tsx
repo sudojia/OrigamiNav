@@ -10,18 +10,21 @@ export const metadata = { title: '站点设置' };
 
 export default async function AdminSettingsPage() {
   await requireAdminPage();
-  // AI status contains only a masked key hint.
-  const [settings, aiStatus, extToken, untaggedCount] = await Promise.all([
-    getSiteSettings(),
-    getAiConfigStatus(),
-    getSecretValue(SECRET_KEYS.extToken),
-    countUntaggedBookmarks(),
-  ]);
+  // AI status contains only a masked key hint; the push token is probed too.
+  const [settings, aiStatus, extToken, baiduPushToken, untaggedCount] =
+    await Promise.all([
+      getSiteSettings(),
+      getAiConfigStatus(),
+      getSecretValue(SECRET_KEYS.extToken),
+      getSecretValue(SECRET_KEYS.baiduPushToken),
+      countUntaggedBookmarks(),
+    ]);
   return (
     <SettingsForm
       settings={settings}
       aiStatus={aiStatus}
       extToken={extToken}
+      hasBaiduToken={Boolean(baiduPushToken)}
       untaggedCount={untaggedCount}
     />
   );

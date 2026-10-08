@@ -52,12 +52,89 @@ export const EMPTY_NAV: NavData = {
   generatedAt: new Date(0).toISOString(),
 };
 
+/** Search engines whose ownership token renders as a `<meta name>` tag. */
+export const VERIFICATION_TARGETS = [
+  {
+    id: 'google',
+    label: 'Google Search Console',
+    metaName: 'google-site-verification',
+    // Name of the meta-tag verification method in each console.
+    method: 'HTML 标记',
+    consoleUrl: 'https://search.google.com/search-console',
+  },
+  {
+    id: 'bing',
+    label: 'Bing Webmaster',
+    metaName: 'msvalidate.01',
+    method: 'Meta 标记',
+    consoleUrl: 'https://www.bing.com/webmasters',
+  },
+  {
+    id: 'baidu',
+    label: '百度搜索资源平台',
+    metaName: 'baidu-site-verification',
+    method: 'HTML 标签验证',
+    consoleUrl: 'https://ziyuan.baidu.com/site/index',
+  },
+  {
+    id: 'sogou',
+    label: '搜狗站长平台',
+    metaName: 'sogou_site_verification',
+    method: 'HTML 标签验证',
+    consoleUrl: 'https://zhanzhang.sogou.com/',
+  },
+  {
+    id: 'so360',
+    label: '360 站长平台',
+    metaName: '360-site-verification',
+    method: 'HTML 标签验证',
+    consoleUrl: 'https://zhanzhang.so.com/',
+  },
+  {
+    id: 'yandex',
+    label: 'Yandex Webmaster',
+    metaName: 'yandex-verification',
+    method: 'Meta tag',
+    consoleUrl: 'https://webmaster.yandex.com/',
+  },
+] as const;
+
+export type VerificationId = (typeof VERIFICATION_TARGETS)[number]['id'];
+
+/** Storage key of one search-engine verification code. */
+export function verificationKey(id: VerificationId): string {
+  return `verify_${id}`;
+}
+
+/** All-empty verification codes; empty string means "not configured". */
+export function emptyVerifications(): Record<VerificationId, string> {
+  return Object.fromEntries(
+    VERIFICATION_TARGETS.map((target) => [target.id, '']),
+  ) as Record<VerificationId, string>;
+}
+
 /** Site-wide settings, with the defaults the setup wizard writes. */
 export type SiteSettings = {
   siteName: string;
   tagline: string;
   description: string;
   logoUrl: string | null;
+  /** Public site base URL without a trailing slash; falls back to NEXT_PUBLIC_SITE_URL. */
+  siteUrl: string | null;
+  /** Allows search engines to index the public pages. */
+  seoIndexing: boolean;
+  /** Per-search-engine ownership tokens; empty string means unset. */
+  verifications: Record<VerificationId, string>;
+  /** Google Analytics 4 measurement ID; empty disables the loader. */
+  analyticsGaId: string;
+  /** Baidu Tongji site ID; empty disables the loader. */
+  analyticsBaiduId: string;
+  /** Self-hosted analytics script base URL (Umami, Plausible); empty disables it. */
+  analyticsUmamiUrl: string;
+  /** Website ID for the self-hosted analytics script. */
+  analyticsUmamiId: string;
+  /** IndexNow key served as /<key>.txt; empty disables submission. */
+  indexNowKey: string;
   /** Where the browser-tab icon comes from. */
   faviconMode: FaviconMode;
   /** External icon URL; only used when faviconMode is 'url'. */
@@ -206,6 +283,14 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   tagline: '把散落的书签折进一张纸',
   description: '',
   logoUrl: null,
+  siteUrl: null,
+  seoIndexing: true,
+  verifications: emptyVerifications(),
+  analyticsGaId: '',
+  analyticsBaiduId: '',
+  analyticsUmamiUrl: '',
+  analyticsUmamiId: '',
+  indexNowKey: '',
   faviconMode: 'none',
   faviconUrl: null,
   faviconVersion: null,

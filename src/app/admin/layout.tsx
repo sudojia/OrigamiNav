@@ -8,7 +8,10 @@ import { requireAdminPage } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata = { title: '管理后台' };
+export const metadata = {
+  title: '管理后台',
+  robots: { index: false, follow: false },
+};
 
 /** Guards the whole /admin subtree and renders the admin shell. */
 export default async function AdminLayout({

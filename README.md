@@ -96,7 +96,18 @@ CMD ["node", "server.js"]
 DATABASE_URL="postgresql://user:password@host:5432/postgres"
 ```
 
-它是一条标准 PostgreSQL 连接串，服务器自建、Docker、任何托管平台都一样。完整说明见 [`.env.example`](./.env.example)。可选变量：`NEXT_PUBLIC_SITE_URL`、`TRUSTED_PROXY`、`DRIZZLE_LOG`。（通常不用设置）
+它是一条标准 PostgreSQL 连接串，服务器自建、Docker、任何托管平台都一样。完整说明见 [`.env.example`](./.env.example)。可选变量：`NEXT_PUBLIC_SITE_URL`、`ANALYTICS_SCRIPT_ORIGIN`、`TRUSTED_PROXY`、`DRIZZLE_LOG`。（通常不用设置）
+
+## SEO 与收录
+
+在后台「设置 → SEO」里集中配置，保存后即时生效（只有两个环境变量是构建期读取）：
+
+- **站点地址**：canonical、`sitemap.xml`、结构化数据与主动推送都基于它，支持子路径部署；留空时回退 `NEXT_PUBLIC_SITE_URL`。
+- **收录开关**：关闭后前台页面输出 `noindex`，`robots.txt` 全站禁止抓取。
+- **搜索引擎验证**：Google、Bing、百度、搜狗、360、Yandex 的验证码，保存后自动输出对应的 meta 标签。
+- **分类独立页**：`/c/<分类 slug>` 是该分类的完整列表页（不受首页展示数量限制），自带标题、canonical 与结构化数据，并写入 `sitemap.xml`；首页「查看全部」指向它。
+- **主动推送**：一键把首页与全部分类页提交给 IndexNow（Bing、Yandex 等）与百度；IndexNow 密钥文件由本站托管在 `/<key>.txt`。
+- **访问统计**：Google Analytics 4、百度统计，以及 Umami / Plausible 等自建统计（自建需在构建环境设置 `ANALYTICS_SCRIPT_ORIGIN` 才会被 CSP 放行）。
 
 ## 浏览器扩展
 

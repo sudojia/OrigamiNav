@@ -10,12 +10,15 @@ export function NavSidebar({
   activeId,
   onSelect,
   counts,
+  hrefFor,
 }: {
   categories: NavCategory[];
   activeId: string | null;
   onSelect: (slug: string) => void;
   /** Visible count after filtering. */
   counts: Map<string, number>;
+  /** Set on a pinned view: entries become links to category pages. */
+  hrefFor?: (category: NavCategory) => string;
 }) {
   return (
     <nav
@@ -32,11 +35,15 @@ export function NavSidebar({
           return (
             <li key={category.id}>
               <a
-                href={`#${category.slug}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  onSelect(category.slug);
-                }}
+                href={hrefFor ? hrefFor(category) : `#${category.slug}`}
+                onClick={
+                  hrefFor
+                    ? undefined
+                    : (event) => {
+                        event.preventDefault();
+                        onSelect(category.slug);
+                      }
+                }
                 aria-current={active ? 'true' : undefined}
                 className={cn(
                   'group flex items-center gap-2.5 rounded-md py-1.5 pr-2 pl-2 text-sm transition-colors',
@@ -77,10 +84,13 @@ export function NavChipBar({
   categories,
   activeId,
   onSelect,
+  hrefFor,
 }: {
   categories: NavCategory[];
   activeId: string | null;
   onSelect: (slug: string) => void;
+  /** Set on a pinned view: entries become links to category pages. */
+  hrefFor?: (category: NavCategory) => string;
 }) {
   return (
     <nav
@@ -93,11 +103,15 @@ export function NavChipBar({
           return (
             <li key={category.id} className="shrink-0">
               <a
-                href={`#${category.slug}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  onSelect(category.slug);
-                }}
+                href={hrefFor ? hrefFor(category) : `#${category.slug}`}
+                onClick={
+                  hrefFor
+                    ? undefined
+                    : (event) => {
+                        event.preventDefault();
+                        onSelect(category.slug);
+                      }
+                }
                 aria-current={active ? 'true' : undefined}
                 className={cn(
                   'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs whitespace-nowrap transition-colors',
