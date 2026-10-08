@@ -24,7 +24,6 @@ import {
 import { cn, truncate } from '@/lib/utils';
 
 import type { TagListRow } from '@/db/queries/tags';
-import { useAdminDialogMode } from './admin-mode';
 
 const SEARCH_DEBOUNCE_MS = 180;
 
@@ -41,7 +40,6 @@ export function TagMergeDialog({
   onClose: () => void;
   onMerged: () => void;
 }) {
-  const dialogMode = useAdminDialogMode();
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<TagListRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +91,7 @@ export function TagMergeDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className={cn('sm:max-w-lg', dialogMode)}>
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {sources.length === 1 ? '合并到其他标签' : `合并 ${sources.length} 个标签`}

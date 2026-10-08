@@ -87,7 +87,11 @@ export default async function RootLayout({
           }}
         />
       </head>
-      <body className="min-h-dvh bg-background font-sans text-foreground antialiased">
+      {/* Suppresses hydration warnings for pre-hydration <body> mutations. */}
+      <body
+        className="min-h-dvh bg-background font-sans text-foreground antialiased"
+        suppressHydrationWarning
+      >
         <Providers
           forcedTheme={darkOnly ? 'dark' : undefined}
           skin={settings.defaultTheme}

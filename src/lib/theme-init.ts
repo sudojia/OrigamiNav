@@ -11,18 +11,17 @@ export function buildSkinInitScript(serverDefaultSkin: string): string {
  * dark-only skins. No-op when no .admin-shell exists (public pages).
  */
 export function buildAdminModeInitScript(forceDark = false): string {
-  if (forceDark) {
-    return (
-      `(function(){try{localStorage.removeItem('origaminav.admin-mode');}catch(e){}` +
-      `var el=document.querySelector('.admin-shell');if(!el)return;` +
-      `el.classList.remove('dark','light');` +
-      `el.classList.add('dark');})();`
-    );
-  }
+  const read = forceDark
+    ? `try{localStorage.removeItem('origaminav.admin-mode');}catch(e){}`
+    : `try{if(localStorage.getItem('origaminav.admin-mode')==='dark')m='dark';}catch(e){}`;
   return (
-    `(function(){var m='dark';try{m=localStorage.getItem('origaminav.admin-mode')||'light';}catch(e){}` +
+    `(function(){var m='${forceDark ? 'dark' : 'light'}';` +
+    read +
+    // The shell paints its own tokens; <body> carries the same mode so the
+    // portaled surfaces and `dark:` variants resolve against the admin.
     `var el=document.querySelector('.admin-shell');if(!el)return;` +
     `el.classList.remove('dark','light');` +
-    `el.classList.add(m==='dark'?'dark':'light');})();`
+    `el.classList.add(m);` +
+    `document.body.classList.add(m);})();`
   );
 }

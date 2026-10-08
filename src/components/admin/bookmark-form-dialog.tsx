@@ -25,9 +25,8 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import { cn, isValidHttpUrl } from '@/lib/utils';
+import { isValidHttpUrl } from '@/lib/utils';
 
-import { useAdminDialogMode } from './admin-mode';
 import { SubmitButton, useActionFeedback } from './form-primitives';
 
 /** Bookmark fields the form can edit. */
@@ -87,9 +86,6 @@ export function BookmarkFormDialog({
 
   useActionFeedback(state, onClose);
 
-  // Dialog mode class; undefined on the public page.
-  const dialogMode = useAdminDialogMode();
-
   /**
    * Fires on URL blur: skips invalid/duplicate URLs and never runs while a
    * fill is already in progress. Title/description are only filled when the
@@ -122,9 +118,7 @@ export function BookmarkFormDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        className={cn('max-h-[85dvh] overflow-y-auto sm:max-w-lg', dialogMode)}
-      >
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{bookmark ? '编辑书签' : '添加书签'}</DialogTitle>
           <DialogDescription>

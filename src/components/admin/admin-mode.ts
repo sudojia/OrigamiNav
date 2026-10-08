@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react';
 export const ADMIN_MODE_STORAGE_KEY = 'origaminav.admin-mode';
 export const ADMIN_MODE_EVENT = 'origaminav:admin-mode';
 
-export function readAdminMode(): 'dark' | 'light' {
+function readAdminMode(): 'dark' | 'light' {
   try {
     return localStorage.getItem(ADMIN_MODE_STORAGE_KEY) === 'dark'
       ? 'dark'
@@ -30,19 +30,4 @@ export function useAdminMode(): 'dark' | 'light' {
     readAdminMode,
     () => 'light' as const,
   );
-}
-
-function subscribeToNothing(): () => void {
-  return () => {};
-}
-
-/** Mode class for a dialog portal, or undefined outside the backend. */
-export function useAdminDialogMode(): 'dark' | 'light' | undefined {
-  const inAdmin = useSyncExternalStore(
-    subscribeToNothing,
-    () => Boolean(document.querySelector('.admin-shell')),
-    () => false,
-  );
-  const mode = useAdminMode();
-  return inAdmin ? mode : undefined;
 }

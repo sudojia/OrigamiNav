@@ -1,9 +1,12 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 
-@custom-variant dark (&:is(.dark *));
-
 /* Theme axes: data-skin="blue|geek|paper" (preset) and .dark (mode). */
+
+/* `dark:` matches a .dark ancestor unless a light <body> wraps it: the admin
+   mirrors its own mode onto <body>, so a light admin must not pick up the
+   public site's html.dark. */
+@custom-variant dark (&:is(.dark *):not(:is(body.light *)));
 
 /* ─── Font stacks ───────────────────────────────────────────────────────── */
 
@@ -277,17 +280,9 @@ html.dark,
     border-color: var(--border);
   }
 
-  /* Re-anchor inherited color at the admin shell. */
+  /* Re-anchor inherited color at the admin shell (pre-hydration paint). */
   .admin-shell.dark,
   .admin-shell.light {
-    color: var(--foreground);
-  }
-
-  /* Re-anchor inherited color for portaled dialogs. */
-  [data-slot='dialog-content'].dark,
-  [data-slot='dialog-content'].light,
-  [data-slot='alert-dialog-content'].dark,
-  [data-slot='alert-dialog-content'].light {
     color: var(--foreground);
   }
 

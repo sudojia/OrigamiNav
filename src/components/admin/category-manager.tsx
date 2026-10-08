@@ -28,7 +28,6 @@ import { Textarea } from '@/components/ui/textarea';
 
 import type { CategoryWithCount } from '@/db/queries/categories';
 import type { CategoryDeleteMode } from '@/types/nav';
-import { useAdminDialogMode } from './admin-mode';
 import { ConfirmDeleteDialog } from './confirm-delete-dialog';
 import { SortableList } from './dnd-list';
 import { SubmitButton, useActionFeedback } from './form-primitives';
@@ -192,17 +191,10 @@ function CategoryFormDialog({
   useActionFeedback(state, onClose);
 
   const editing = category !== null;
-  // Dialog mode class for the admin toggle.
-  const dialogMode = useAdminDialogMode();
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        className={
-          'flex max-h-[85dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-md ' +
-          (dialogMode ?? '')
-        }
-      >
+      <DialogContent className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
         {/* Pinned header: identity preview + title. */}
         <DialogHeader className="gap-3 border-b p-5 text-left sm:text-left">
           <div className="flex items-center gap-3">

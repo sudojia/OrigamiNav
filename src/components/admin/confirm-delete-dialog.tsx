@@ -13,8 +13,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-import { useAdminDialogMode } from './admin-mode';
-
 /** Destructive confirm dialog shared by the managers. */
 export function ConfirmDeleteDialog({
   open,
@@ -34,12 +32,9 @@ export function ConfirmDeleteDialog({
   confirmDisabled?: boolean;
   onConfirm: () => void;
 }) {
-  // Dialog mode class for the admin toggle.
-  const dialogMode = useAdminDialogMode();
-
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className={dialogMode}>
+      <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>

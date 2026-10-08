@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 
+import { AdminModeBridge } from '@/components/admin/admin-mode-bridge';
 import { AdminSidebar } from '@/components/admin/admin-sidebar';
 import { IconSettingsProvider } from '@/components/nav/icon-settings';
 import { getSiteSettings } from '@/db/queries/settings';
@@ -27,6 +28,7 @@ export default async function AdminLayout({
       className="admin-shell dark min-h-dvh bg-background lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]"
       suppressHydrationWarning
     >
+      <AdminModeBridge darkOnly={darkOnly} />
       <AdminSidebar
         username={admin.username}
         darkOnly={darkOnly}
