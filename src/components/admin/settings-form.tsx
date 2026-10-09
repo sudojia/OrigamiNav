@@ -20,11 +20,12 @@ import {
   fetchAiModelsAction,
   testAiConnectionAction,
 } from '@/actions/ai';
-import { updateSettingsAction } from '@/actions/settings';
+import { updateSettingsAction, clearIconCacheAction } from '@/actions/settings';
 import {
   removeFaviconAction,
   uploadFaviconAction,
 } from '@/actions/site-assets';
+import type { IconCacheStats } from '@/db/queries/icons';
 import { cn } from '@/lib/utils';
 import {
   isAiProtocol,
@@ -122,6 +123,7 @@ export function SettingsForm({
   extToken,
   hasBaiduToken,
   untaggedCount,
+  iconCache,
 }: {
   settings: {
     siteName: string;
@@ -154,6 +156,7 @@ export function SettingsForm({
   extToken: string | null;
   hasBaiduToken: boolean;
   untaggedCount: number;
+  iconCache: IconCacheStats;
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -228,6 +231,7 @@ export function SettingsForm({
     String(settings.aiConcurrency),
   );
   const [batchRemaining, setBatchRemaining] = useState(untaggedCount);
+  const [clearingIconCache, setClearingIconCache] = useState(false);
   const [batchRunning, setBatchRunning] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<AiTestResult | null>(null);
@@ -398,6 +402,25 @@ export function SettingsForm({
       toast.error('批量补打标签请求失败，请检查网络后重试');
     } finally {
       setBatchRunning(false);
+    }
+  }
+
+  async function handleClearIconCache() {
+    if (clearingIconCache) return;
+    setClearingIconCache(true);
+    try {
+      const result = await clearIconCacheAction();
+      if (result.ok) {
+        toast.success(result.message);
+        router.refresh();
+      } else {
+        toast.error(result.message);
+      }
+    } catch (error) {
+      console.error('[origaminav] clearing the icon cache failed', error);
+      toast.error('清空图标缓存失败，请检查网络后重试');
+    } finally {
+      setClearingIconCache(false);
     }
   }
 
@@ -583,6 +606,8 @@ export function SettingsForm({
               faviconUrl={faviconUrl}
               iconService={iconService}
               iconCustomTemplate={iconCustomTemplate}
+              iconCache={iconCache}
+              clearingIconCache={clearingIconCache}
               faviconBusy={faviconBusy}
               hasUploadedIcon={hasUploadedIcon}
               effectiveIcon={effectiveIcon}
@@ -594,6 +619,7 @@ export function SettingsForm({
               onFaviconUrlChange={setFaviconUrl}
               onIconServiceChange={setIconService}
               onIconCustomTemplateChange={setIconCustomTemplate}
+              onClearIconCache={handleClearIconCache}
               onIconFile={handleIconFile}
               onIconRemove={handleIconRemove}
             />

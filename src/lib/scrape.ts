@@ -177,19 +177,42 @@ export async function readBytesCapped(
   body: UndiciResponse['body'],
   limit: number,
 ): Promise<Uint8Array> {
+  return (await readBytesLimited(body, limit)).bytes;
+}
+
+/**
+ * Reads at most `limit` bytes and reports whether more of the body arrived than
+ * fitted. Callers that parse a prefix (HTML) ignore the flag; a caller that
+ * needs the whole payload (an image) has to reject a short read.
+ */
+export async function readBytesLimited(
+  body: UndiciResponse['body'],
+  limit: number,
+): Promise<{ bytes: Uint8Array; truncated: boolean }> {
   const reader = body?.getReader();
-  if (!reader) return new Uint8Array(0);
+  if (!reader) return { bytes: new Uint8Array(0), truncated: false };
 
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let truncated = false;
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       if (!value) continue;
       const bytes = value as Uint8Array;
+      const room = limit - total;
+      if (bytes.byteLength > room) {
+        // More data than fits proves the payload continues past the cap.
+        chunks.push(bytes.subarray(0, room));
+        total += room;
+        truncated = true;
+        break;
+      }
       chunks.push(bytes);
       total += bytes.byteLength;
+      // A body ending exactly on the cap is not told apart from one that
+      // continues, which keeps this path free of an extra read.
       if (total >= limit) break;
     }
   } finally {
@@ -202,7 +225,7 @@ export async function readBytesCapped(
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return merged;
+  return { bytes: merged, truncated };
 }
 
 /** Reads at most `limit` bytes from a response body and decodes them. */

@@ -480,17 +480,24 @@ export async function getBookmarkById(id: string): Promise<BookmarkCore | null> 
   );
 }
 
-/** Manual icon URL of a live bookmark; null when unset, missing or in the bin. */
-export async function getBookmarkIconUrl(id: string): Promise<string | null> {
+/**
+ * The URL and manual icon URL of a live bookmark; null when missing or in the
+ * bin. `hidden` is deliberately not filtered: the signed-in admin sees private
+ * bookmarks on the public pages, and those are the likeliest to carry a
+ * hand-picked icon. The id is unguessable, so this is not a public read path.
+ */
+export async function getBookmarkIconTarget(
+  id: string,
+): Promise<{ url: string; iconUrl: string | null } | null> {
   return safeQuery(
-    'getBookmarkIconUrl',
+    'getBookmarkIconTarget',
     async (database) => {
       const rows = await database
-        .select({ iconUrl: bookmarks.iconUrl })
+        .select({ url: bookmarks.url, iconUrl: bookmarks.iconUrl })
         .from(bookmarks)
         .where(and(eq(bookmarks.id, id), isNull(bookmarks.deletedAt)))
         .limit(1);
-      return rows[0]?.iconUrl ?? null;
+      return rows[0] ?? null;
     },
     null,
   );

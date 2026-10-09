@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { guardAction } from '@/lib/action-guard';
 import { errorMessage } from '@/db/client';
+import { clearIconCache } from '@/db/queries/icons';
 import { invalidateExtTokenCache } from '@/lib/ext-api';
 import {
   clampCardColumns,
@@ -380,4 +381,26 @@ export async function revokeExtTokenAction(): Promise<ExtTokenState> {
     return { ok: false, message: `吊销失败：${errorMessage(error)}` };
   }
   return { ok: true, message: '扩展令牌已吊销', token: null };
+}
+
+// ─── Bookmark icon cache ────────────────────────────────────────────────────
+
+/**
+ * Empties the cached favicons. Nothing is lost — each entry is refetched the
+ * next time a page asks for it, which is the point: a provider that returned a
+ * wrong or placeholder icon gets another try.
+ */
+export async function clearIconCacheAction(): Promise<ActionState> {
+  const denied = await guardAction();
+  if (denied) return denied;
+
+  try {
+    const removed = await clearIconCache();
+    return {
+      ok: true,
+      message: removed > 0 ? `已清空 ${removed} 条图标缓存` : '图标缓存本来就是空的',
+    };
+  } catch (error) {
+    return { ok: false, message: `清空失败：${errorMessage(error)}` };
+  }
 }

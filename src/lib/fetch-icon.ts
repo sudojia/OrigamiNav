@@ -2,26 +2,36 @@ import 'server-only';
 
 import { ICON_FETCH_USER_AGENT } from '@/lib/project-links';
 import { fetchFollowing } from '@/lib/safe-fetch';
-import { readBytesCapped } from '@/lib/scrape';
+import { readBytesLimited } from '@/lib/scrape';
 
 /** Fetches one bookmark icon; null when the response is not a usable image. */
 
 /** Cap on a single icon; favicons are small, and the cache stores them base64. */
 const MAX_ICON_BYTES = 262_144; // 256KB
-const TIMEOUT_MS = 3_000;
 
 export type FetchedIcon = { mimeType: string; bytes: Uint8Array };
 
-export async function fetchIconBytes(url: string): Promise<FetchedIcon | null> {
+/** `timeoutMs` is the caller's per-source slice of its own chain budget. */
+export async function fetchIconBytes(
+  url: string,
+  timeoutMs: number,
+): Promise<FetchedIcon | null> {
   const outcome = await fetchFollowing(
     url,
     {
       accept: 'image/*,*/*;q=0.5',
-      timeoutMs: TIMEOUT_MS,
+      timeoutMs,
       userAgent: ICON_FETCH_USER_AGENT,
     },
     async (response): Promise<FetchedIcon | null> => {
-      const bytes = await readBytesCapped(response.body, MAX_ICON_BYTES);
+      const { bytes, truncated } = await readBytesLimited(
+        response.body,
+        MAX_ICON_BYTES,
+      );
+      // A cut-off image keeps its magic bytes, so it would be typed as valid and
+      // cached for a week while the browser fails to render it.
+      if (truncated) return null;
+
       const mimeType = detectImageMime(bytes);
       return mimeType ? { mimeType, bytes } : null;
     },

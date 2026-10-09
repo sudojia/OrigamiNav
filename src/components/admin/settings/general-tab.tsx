@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2, Share2, Shapes, Trash2, Type, Upload } from 'lucide-react';
+import { Database, Loader2, Share2, Shapes, Trash2, Type, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { Favicon } from '@/components/nav/favicon';
@@ -8,6 +8,7 @@ import { SiteMark } from '@/components/nav/site-mark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import type { IconCacheStats } from '@/db/queries/icons';
 import { cn } from '@/lib/utils';
 import {
   ICON_TEMPLATE_PLACEHOLDER,
@@ -49,6 +50,13 @@ const ICON_PREVIEW_HOSTS = ['bilibili.com', 'github.com', 'zhihu.com', 'juejin.c
 /** Idle time before the preview commits the latest selection and reloads. */
 const ICON_PREVIEW_DEBOUNCE_MS = 2000;
 
+/** Icon payloads are small, so the cache size is read in KB most of the time. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export interface GeneralTabProps {
   active: boolean;
   siteName: string;
@@ -59,6 +67,8 @@ export interface GeneralTabProps {
   faviconUrl: string;
   iconService: IconService;
   iconCustomTemplate: string;
+  iconCache: IconCacheStats;
+  clearingIconCache: boolean;
   faviconBusy: boolean;
   hasUploadedIcon: boolean;
   effectiveIcon: string | null;
@@ -70,6 +80,7 @@ export interface GeneralTabProps {
   onFaviconUrlChange: (value: string) => void;
   onIconServiceChange: (value: IconService) => void;
   onIconCustomTemplateChange: (value: string) => void;
+  onClearIconCache: () => void;
   onIconFile: (file: File | undefined) => void;
   onIconRemove: () => void;
 }
@@ -84,6 +95,8 @@ export function GeneralTab({
   faviconUrl,
   iconService,
   iconCustomTemplate,
+  iconCache,
+  clearingIconCache,
   faviconBusy,
   hasUploadedIcon,
   effectiveIcon,
@@ -95,6 +108,7 @@ export function GeneralTab({
   onFaviconUrlChange,
   onIconServiceChange,
   onIconCustomTemplateChange,
+  onClearIconCache,
   onIconFile,
   onIconRemove,
 }: GeneralTabProps) {
@@ -420,6 +434,48 @@ export function GeneralTab({
           <p className="text-xs leading-relaxed text-muted-foreground">
             手动填写过图标地址的书签不受影响；单个服务最多等待 2
             秒，失败自动换下一个或回退为字母色块。
+          </p>
+        </FieldSection>
+
+        <FieldSection
+          divided
+          Icon={Database}
+          title="图标缓存"
+          description="抓到的图标按域名存在数据库里，命中时不再请求上游，访客浏览器也不直连第三方图标服务。"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              共{' '}
+              <span className="font-semibold tabular-nums text-foreground">
+                {iconCache.entries}
+              </span>{' '}
+              条
+              {iconCache.misses > 0
+                ? `（其中 ${iconCache.misses} 条为「上游没有图标」的记录）`
+                : ''}
+              ，占用{' '}
+              <span className="font-semibold tabular-nums text-foreground">
+                {formatBytes(iconCache.bytes)}
+              </span>
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={clearingIconCache || iconCache.entries === 0}
+              onClick={onClearIconCache}
+            >
+              {clearingIconCache ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Trash2 className="size-3.5" />
+              )}
+              清空缓存
+            </Button>
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+            清空不会丢数据，图标会在下次访问时重新抓取。但浏览器自己也会缓存图标最长 1
+            天，所以清空后访客那边不会立刻更新。
           </p>
         </FieldSection>
       </div>
