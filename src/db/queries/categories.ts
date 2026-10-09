@@ -8,6 +8,7 @@ import { slugifyUnique } from '@/lib/pinyin';
 
 import { db, safeQuery } from '../client';
 import { bookmarks, bookmarksTags, categories, type Category } from '../schema';
+import { stashTagIdsSql } from './bookmarks';
 
 export type CategoryWithCount = Category & { bookmarkCount: number };
 
@@ -42,8 +43,84 @@ export async function listCategoriesWithCounts(): Promise<CategoryWithCount[]> {
   );
 }
 
+/** Id and name of every live category, in display order. */
+export async function listCategoryOptions(): Promise<
+  Array<{ id: string; name: string }>
+> {
+  return safeQuery(
+    'listCategoryOptions',
+    (database) =>
+      database
+        .select({ id: categories.id, name: categories.name })
+        .from(categories)
+        .where(isNull(categories.deletedAt))
+        .orderBy(asc(categories.sortOrder), asc(categories.id)),
+    [],
+  );
+}
+
 /** A category plus how many of its bookmarks are visible to the public. */
 export type CategoryWithPublicCount = Category & { visibleBookmarks: number };
+
+export type CategoryDescriptionTarget = {
+  id: string;
+  name: string;
+  description: string;
+  /** Sampled bookmark titles, in display order; the AI's raw material. */
+  titles: string[];
+};
+
+/**
+ * Live categories with at most `titlesPerCategory` bookmark titles each. One
+ * window-function pass, so the sample stays cheap however large the catalogue
+ * grows; a category with no bookmarks comes back with an empty list.
+ */
+export async function listCategoryDescriptionTargets(
+  titlesPerCategory: number,
+): Promise<CategoryDescriptionTarget[]> {
+  return safeQuery(
+    'listCategoryDescriptionTargets',
+    async (database) => {
+      const result = await database.execute(sql`
+        SELECT c.id, c.name, c.description, ranked.title
+        FROM ${categories} c
+        LEFT JOIN (
+          SELECT category_id, title
+          FROM (
+            SELECT category_id, title,
+                   row_number() OVER (
+                     PARTITION BY category_id ORDER BY sort_order, id
+                   ) AS rn
+            FROM ${bookmarks}
+            WHERE deleted_at IS NULL
+          ) numbered
+          WHERE rn <= ${titlesPerCategory}
+        ) ranked ON ranked.category_id = c.id
+        WHERE c.deleted_at IS NULL
+        ORDER BY c.sort_order, c.id
+      `);
+
+      const grouped = new Map<string, CategoryDescriptionTarget>();
+      for (const row of result.rows as Array<{
+        id: string;
+        name: string;
+        description: string;
+        title: string | null;
+      }>) {
+        const entry = grouped.get(row.id) ?? {
+          id: row.id,
+          name: row.name,
+          description: row.description,
+          titles: [],
+        };
+        if (row.title) entry.titles.push(row.title);
+        grouped.set(row.id, entry);
+      }
+      return [...grouped.values()];
+    },
+    [],
+  );
+}
 
 /**
  * Finds a category by its URL slug; memoized per request so a category page and
@@ -381,6 +458,29 @@ export async function createCategory(input: {
   });
 }
 
+/**
+ * Sets only the description, in one statement for the whole batch; the AI fill
+ * must not touch any other field. Returns how many rows changed.
+ */
+export async function updateCategoryDescriptions(
+  entries: Array<{ id: string; description: string }>,
+): Promise<number> {
+  if (entries.length === 0) return 0;
+
+  const stamp = nowIso();
+  const pairs = entries.map(
+    (entry) => sql`(${entry.id}::text, ${entry.description}::text)`,
+  );
+  const result = await db.execute(sql`
+    UPDATE ${categories} AS c
+    SET description = v.description,
+        updated_at = ${stamp}
+    FROM (VALUES ${sql.join(pairs, sql`, `)}) AS v(id, description)
+    WHERE c.id = v.id AND c.deleted_at IS NULL
+  `);
+  return result.rowCount ?? 0;
+}
+
 export async function updateCategory(
   id: string,
   patch: {
@@ -417,11 +517,7 @@ export async function deleteCategory(id: string): Promise<void> {
       UPDATE ${bookmarks} AS b
       SET deleted_at = ${stamp},
           updated_at = ${stamp},
-          deleted_tag_ids = coalesce((
-            SELECT string_agg(bt.tag_id, ',')
-            FROM ${bookmarksTags} AS bt
-            WHERE bt.bookmark_id = b.id
-          ), '')
+          deleted_tag_ids = ${stashTagIdsSql(sql`b.id`)}
       WHERE b.category_id = ${id} AND b.deleted_at IS NULL
     `);
 

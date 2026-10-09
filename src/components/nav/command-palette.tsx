@@ -219,6 +219,7 @@ export function CommandPalette({
                   hostname={item.sublabel}
                   title={item.label}
                   iconUrl={item.iconUrl}
+                  bookmarkId={item.id}
                   className="size-4"
                 />
                 <span className="flex-1 truncate">{item.label}</span>

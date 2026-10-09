@@ -10,7 +10,10 @@ export const dynamic = 'force-dynamic';
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const settings = await getSiteSettings();
 
-  if (!settings.seoIndexing) {
+  // Unreadable settings mean the admin's intent is unknown, and the defaults
+  // would invite crawlers onto a site that may have indexing switched off.
+  // Refuse instead of guessing.
+  if (!settings.available || !settings.seoIndexing) {
     return { rules: { userAgent: '*', disallow: '/' } };
   }
 

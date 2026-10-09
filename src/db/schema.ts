@@ -98,6 +98,19 @@ export const bookmarksTags = pgTable(
   ],
 );
 
+/**
+ * Bookmark favicons cached by hostname, so the visitor's browser never talks to
+ * a third-party icon service. Bytes are stored base64 in text; a row with empty
+ * `data` is a cached miss, which keeps a host without an icon from being
+ * refetched on every page view.
+ */
+export const bookmarkIcons = pgTable('bookmark_icons', {
+  host: text('host').primaryKey(),
+  mimeType: text('mime_type').notNull().default(''),
+  data: text('data').notNull().default(''),
+  fetchedAt: text('fetched_at').notNull(),
+});
+
 export const admins = pgTable(
   'admins',
   {

@@ -7,11 +7,17 @@ import { errorMessage } from '@/db/client';
 import {
   createBookmark,
   deleteBookmark,
+  deleteBookmarks,
   renumberBookmarksInCategory,
+  setBookmarksCategory,
+  setBookmarksHidden,
   updateBookmark,
 } from '@/db/queries/bookmarks';
 import { getCategoryById } from '@/db/queries/categories';
-import { resolveTagIds } from '@/db/queries/tags';
+import {
+  attachTagsToBookmarks,
+  resolveTagIds,
+} from '@/db/queries/tags';
 import { revalidateSite } from '@/lib/revalidate';
 import { queueAiTagGeneration } from '@/lib/ai-tags';
 import { httpUrlSchema, LIMITS, optionalHttpUrlSchema } from '@/lib/validation';
@@ -244,4 +250,104 @@ export async function reorderBookmarksAction(
 
   revalidateSite();
   return { ok: true, message: '排序已保存' };
+}
+
+// ── Batch operations ─────────────────────────────────────────────────────────
+
+/** Upper bound on one batch; keeps the statements under pg's parameter cap. */
+const BULK_LIMIT = 1000;
+
+const bulkIds = z
+  .array(z.string().min(1).max(64))
+  .min(1, '请先选择书签')
+  .max(BULK_LIMIT, `一次最多操作 ${BULK_LIMIT} 条书签`);
+
+/**
+ * One entry point for the manager's batch operations. A discriminated payload
+ * keeps the guard, validation and revalidation in one place, and each operation
+ * carries only what it needs.
+ */
+const bulkSchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('category'),
+    ids: bulkIds,
+    categoryId: z.string().min(1),
+  }),
+  z.object({
+    op: z.literal('tags'),
+    ids: bulkIds,
+    tagsInput: z.string().max(500, '标签过多'),
+  }),
+  z.object({
+    op: z.literal('hidden'),
+    ids: bulkIds,
+    hidden: z.boolean(),
+  }),
+  z.object({
+    op: z.literal('delete'),
+    ids: bulkIds,
+  }),
+]);
+
+export type BulkBookmarkInput = z.input<typeof bulkSchema>;
+
+export async function bulkUpdateBookmarksAction(
+  input: BulkBookmarkInput,
+): Promise<ActionState> {
+  const denied = await guard();
+  if (denied) return denied;
+
+  const parsed = bulkSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? '输入有误' };
+  }
+  const data = parsed.data;
+
+  try {
+    if (data.op === 'category') {
+      const category = await getCategoryById(data.categoryId);
+      if (!category) {
+        return { ok: false, message: '目标分类不存在，请刷新后重试' };
+      }
+      const moved = await setBookmarksCategory(data.ids, data.categoryId);
+      revalidateSite();
+      return { ok: true, message: `已把 ${moved} 条书签移到「${category.name}」` };
+    }
+
+    if (data.op === 'tags') {
+      const names = parseTagNames(data.tagsInput);
+      if (names.length === 0) {
+        return { ok: false, message: '请输入至少一个标签' };
+      }
+      if (names.some((name) => name.length > LIMITS.tagName)) {
+        return { ok: false, message: `单个标签最多 ${LIMITS.tagName} 个字` };
+      }
+      // One resolution, one link insert, one search-index rebuild for the batch.
+      const tagged = await attachTagsToBookmarks(
+        data.ids.map((id) => ({ bookmarkId: id, names })),
+      );
+      revalidateSite();
+      return {
+        ok: true,
+        message: `已为 ${tagged} 条书签添加标签：${names.join('、')}`,
+      };
+    }
+
+    if (data.op === 'hidden') {
+      const changed = await setBookmarksHidden(data.ids, data.hidden);
+      revalidateSite();
+      return {
+        ok: true,
+        message: data.hidden
+          ? `已把 ${changed} 条书签设为私有`
+          : `已把 ${changed} 条书签设为公开`,
+      };
+    }
+
+    const moved = await deleteBookmarks(data.ids);
+    revalidateSite();
+    return { ok: true, message: `已把 ${moved} 条书签移入回收站` };
+  } catch (error) {
+    return { ok: false, message: `批量操作失败：${errorMessage(error)}` };
+  }
 }

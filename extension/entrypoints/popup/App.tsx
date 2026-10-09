@@ -4,6 +4,7 @@ import {
   CircleAlert,
   FolderPlus,
   Globe,
+  Library,
   Loader2,
   Plus,
   Settings,
@@ -14,7 +15,6 @@ import {
   useCallback,
   useEffect,
   useState,
-  type ReactNode,
 } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -41,6 +41,9 @@ import { isConfigured, lastCategoryItem, loadConfig } from '@/utils/config';
 import { getActivePageMeta, type PageMeta } from '@/utils/page';
 import { cn } from '@/utils/cn';
 
+import { ManageView } from './ManageView';
+import { Centered, ConnectNotice } from './common';
+
 const TITLE_LIMIT = 100;
 const DESCRIPTION_LIMIT = 300;
 const CATEGORY_NAME_LIMIT = 40;
@@ -57,6 +60,7 @@ interface BootError {
 
 /** Detect page → pick category → save. */
 export function App() {
+  const [view, setView] = useState<'save' | 'manage'>('save');
   const [phase, setPhase] = useState<Phase>('loading');
   const [bootError, setBootError] = useState<BootError | null>(null);
   const [meta, setMeta] = useState<PageMeta | null>(null);
@@ -212,6 +216,12 @@ export function App() {
     }
   }
 
+  // ── Bookmark manager ───────────────────────────────────────────────────
+
+  if (view === 'manage') {
+    return <ManageView siteName={siteName} onBack={() => setView('save')} />;
+  }
+
   // ── Non-form states ────────────────────────────────────────────────────
 
   if (phase === 'loading') {
@@ -231,23 +241,16 @@ export function App() {
         <p className="text-xs leading-relaxed text-muted-foreground">
           只支持收藏 http(s) 网页，浏览器内置页面除外。
         </p>
+        <Button size="sm" variant="outline" onClick={() => setView('manage')}>
+          <Library className="size-4" />
+          管理已收藏
+        </Button>
       </Centered>
     );
   }
 
   if (phase === 'unconfigured') {
-    return (
-      <Centered>
-        <Settings className="size-8 text-primary/70" />
-        <p className="text-sm font-medium">先连接到你的 OrigamiNav</p>
-        <p className="max-w-[16rem] text-center text-xs leading-relaxed text-muted-foreground">
-          在管理后台「设置 → 浏览器扩展」生成令牌，然后到扩展选项页填写站点地址与令牌。
-        </p>
-        <Button size="sm" onClick={() => void browser.runtime.openOptionsPage()}>
-          打开选项页
-        </Button>
-      </Centered>
-    );
+    return <ConnectNotice />;
   }
 
   if (phase === 'error' && bootError) {
@@ -323,6 +326,17 @@ export function App() {
             收藏到 {siteName || 'OrigamiNav'}
           </p>
         </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="管理已收藏"
+          title="搜索、改标签或删除已收藏"
+          className="shrink-0"
+          onClick={() => setView('manage')}
+        >
+          <Library className="size-4 text-muted-foreground" />
+        </Button>
         <Button
           type="button"
           variant="ghost"
@@ -565,14 +579,6 @@ export function App() {
           ，可在管理后台调整。
         </p>
       ) : null}
-    </div>
-  );
-}
-
-function Centered({ children }: { children: ReactNode }) {
-  return (
-    <div className="flex min-h-48 flex-col items-center justify-center gap-2 p-6 text-center">
-      {children}
     </div>
   );
 }

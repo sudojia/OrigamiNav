@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, eq, exists, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { categoryIconSvg } from '@/lib/category-icon-svg';
@@ -263,5 +263,64 @@ export async function searchBookmarks(options: {
       };
     },
     { categories: [], truncated: false, cursor: null },
+  );
+}
+
+/** One row of the extension's bookmark manager. */
+export type ExtBookmarkRow = {
+  id: string;
+  title: string;
+  url: string;
+  description: string;
+  hidden: boolean;
+  categoryId: string;
+  categoryName: string;
+  tags: NavTag[];
+};
+
+/**
+ * Live bookmarks matching the same terms as the public search, newest first,
+ * with their category and tags. Hidden rows are included: the caller holds the
+ * extension's write token. An empty query matches nothing.
+ */
+export async function searchExtBookmarks(
+  query: string,
+  limit: number,
+): Promise<ExtBookmarkRow[]> {
+  const terms = termConditions(query, bookmarks.searchIndex);
+  if (terms.length === 0) return [];
+
+  return safeQuery(
+    'searchExtBookmarks',
+    async (database) => {
+      const rows = await database
+        .select({
+          id: bookmarks.id,
+          title: bookmarks.title,
+          url: bookmarks.url,
+          description: bookmarks.description,
+          hidden: bookmarks.hidden,
+          categoryId: categories.id,
+          categoryName: categories.name,
+        })
+        .from(bookmarks)
+        .innerJoin(categories, eq(categories.id, bookmarks.categoryId))
+        .where(
+          and(
+            ...terms,
+            isNull(bookmarks.deletedAt),
+            isNull(categories.deletedAt),
+          ),
+        )
+        .orderBy(desc(bookmarks.createdAt), asc(bookmarks.id))
+        .limit(limit);
+
+      const tagMap = await tagsByBookmark(
+        database,
+        rows.map((row) => row.id),
+      );
+      return rows.map((row) => ({ ...row, tags: tagMap.get(row.id) ?? [] }));
+    },
+    [],
   );
 }

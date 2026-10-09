@@ -172,14 +172,13 @@ export function parseHtmlMeta(
   return { title, description: description || ogDescription, iconUrl };
 }
 
-/** Reads at most `limit` bytes from a response body and decodes them. */
-export async function readBodyCapped(
+/** Reads at most `limit` bytes from a response body. */
+export async function readBytesCapped(
   body: UndiciResponse['body'],
   limit: number,
-  contentType?: string | null,
-): Promise<string> {
+): Promise<Uint8Array> {
   const reader = body?.getReader();
-  if (!reader) return '';
+  if (!reader) return new Uint8Array(0);
 
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -203,7 +202,16 @@ export async function readBodyCapped(
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return decodeWithCharset(merged, contentType);
+  return merged;
+}
+
+/** Reads at most `limit` bytes from a response body and decodes them. */
+export async function readBodyCapped(
+  body: UndiciResponse['body'],
+  limit: number,
+  contentType?: string | null,
+): Promise<string> {
+  return decodeWithCharset(await readBytesCapped(body, limit), contentType);
 }
 
 /**

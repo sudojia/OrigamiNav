@@ -1,7 +1,10 @@
 'use client';
 
 import {
+  Check,
   ChevronDown,
+  Eye,
+  EyeOff,
   FolderTree,
   LayoutGrid,
   Link2,
@@ -10,6 +13,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Tag,
   Trash2,
   X,
 } from 'lucide-react';
@@ -28,8 +32,10 @@ import {
 import { toast } from 'sonner';
 
 import {
+  bulkUpdateBookmarksAction,
   deleteBookmarkAction,
   reorderBookmarksAction,
+  type BulkBookmarkInput,
 } from '@/actions/bookmark';
 import {
   BookmarkFormDialog,
@@ -38,7 +44,17 @@ import {
 import { Favicon } from '@/components/nav/favicon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -120,6 +136,10 @@ export function BookmarkManager({
   const [deleting, setDeleting] = useState<AdminBookmark | null>(null);
   const [categoryFilter, setCategoryFilter] = useState(ALL_CATEGORIES);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkTagOpen, setBulkTagOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
   const view = useSyncExternalStore(
     subscribeToViewPreference,
     readViewPreference,
@@ -128,6 +148,15 @@ export function BookmarkManager({
   const [pending, startTransition] = useTransition();
 
   const refresh = () => startTransition(() => router.refresh());
+
+  // Selection belongs to one result set: a new search term or category filter
+  // replaces the rows on screen, so the old ids would be invisible but still act.
+  const listKey = `${query}|${categoryFilter}`;
+  const [lastListKey, setLastListKey] = useState(listKey);
+  if (lastListKey !== listKey) {
+    setLastListKey(listKey);
+    setSelected(new Set());
+  }
 
   function switchView(next: ViewMode) {
     try {
@@ -259,6 +288,54 @@ export function BookmarkManager({
     setDeleting(bookmark);
   }, []);
 
+  // ── Batch selection ───────────────────────────────────────────────────────
+  // Stable identities: these reach the memoized rows, so an unstable callback
+  // would re-render every row on any parent state change.
+  const toggleSelect = useCallback((id: string, next: boolean) => {
+    setSelected((prev) => {
+      const copy = new Set(prev);
+      if (next) copy.add(id);
+      else copy.delete(id);
+      return copy;
+    });
+  }, []);
+
+  const selectMany = useCallback((ids: string[], next: boolean) => {
+    setSelected((prev) => {
+      const copy = new Set(prev);
+      for (const id of ids) {
+        if (next) copy.add(id);
+        else copy.delete(id);
+      }
+      return copy;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => setSelected(new Set()), []);
+
+  const selectedIds = useMemo(() => [...selected], [selected]);
+
+  /** Runs one batch operation, then reconciles with the server. */
+  async function runBulk(input: BulkBookmarkInput) {
+    setBulkBusy(true);
+    try {
+      const result = await bulkUpdateBookmarksAction(input);
+      if (result.ok) {
+        toast.success(result.message);
+        clearSelection();
+        refresh();
+      } else {
+        toast.error(result.message);
+      }
+    } catch (error) {
+      // Server actions reject on transport errors; keep the toast dismissible.
+      console.error('[origaminav] bulk bookmark action failed', error);
+      toast.error('批量操作失败，请检查网络后重试');
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   // No category at all is the only case that has nothing to search either.
   if (categories.length === 0) {
     return (
@@ -378,6 +455,23 @@ export function BookmarkManager({
         </div>
       </div>
 
+      {selected.size > 0 ? (
+        <BulkBar
+          count={selected.size}
+          busy={bulkBusy}
+          categories={categories}
+          onCategory={(categoryId) =>
+            void runBulk({ op: 'category', ids: selectedIds, categoryId })
+          }
+          onTags={() => setBulkTagOpen(true)}
+          onHidden={(hidden) =>
+            void runBulk({ op: 'hidden', ids: selectedIds, hidden })
+          }
+          onDelete={() => setBulkDeleteOpen(true)}
+          onClear={clearSelection}
+        />
+      ) : null}
+
       {filtering ? (
         <p className="text-xs text-muted-foreground" role="status">
           搜索「{query}」命中 {totalVisible} 条书签。
@@ -397,15 +491,22 @@ export function BookmarkManager({
           {visibleGroups.map((group) => {
             const isCollapsed = !filtering && collapsed.has(group.category.id);
             const Icon = resolveCategoryIcon(group.category.icon)?.Icon;
+            const groupIds = group.bookmarks.map((bookmark) => bookmark.id);
             return (
               <section key={group.category.id} className="space-y-2">
                 <div className="flex items-center gap-2">
+                  <SelectAllCheckbox
+                    ids={groupIds}
+                    selected={selected}
+                    onSelect={selectMany}
+                    label={`选择「${group.category.name}」的全部书签`}
+                  />
                   <button
                     type="button"
                     onClick={() => toggleCollapsed(group.category.id)}
                     aria-expanded={!isCollapsed}
                     aria-label={isCollapsed ? `展开 ${group.category.name}` : `折叠 ${group.category.name}`}
-                    className="-ml-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
                     <ChevronDown
                       className={cn(
@@ -459,6 +560,8 @@ export function BookmarkManager({
                       <BookmarkRow
                         bookmark={bookmark}
                         handle={filtering ? null : handle}
+                        selected={selected.has(bookmark.id)}
+                        onToggleSelect={toggleSelect}
                         onEdit={openEditor}
                         onDelete={requestDelete}
                       />
@@ -474,6 +577,8 @@ export function BookmarkManager({
                       <BookmarkGridCard
                         bookmark={bookmark}
                         handle={filtering ? null : handle}
+                        selected={selected.has(bookmark.id)}
+                        onToggleSelect={toggleSelect}
                         onEdit={openEditor}
                         onDelete={requestDelete}
                       />
@@ -506,7 +611,230 @@ export function BookmarkManager({
         confirmLabel="移入回收站"
         onConfirm={handleDelete}
       />
+
+      <ConfirmDeleteDialog
+        open={bulkDeleteOpen}
+        onOpenChange={(open) => !open && setBulkDeleteOpen(false)}
+        title={<>删除选中的 {selected.size} 条书签？</>}
+        description="书签会移入回收站，标签关联一并保留，可在保留期内恢复。"
+        confirmLabel="移入回收站"
+        confirmDisabled={bulkBusy}
+        onConfirm={() => {
+          setBulkDeleteOpen(false);
+          void runBulk({ op: 'delete', ids: selectedIds });
+        }}
+      />
+
+      {bulkTagOpen ? (
+        <BulkTagDialog
+          count={selected.size}
+          busy={bulkBusy}
+          onClose={() => setBulkTagOpen(false)}
+          onSubmit={(tagsInput) => {
+            setBulkTagOpen(false);
+            void runBulk({ op: 'tags', ids: selectedIds, tagsInput });
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * Batch action bar. Appears only with a selection, and sticks to the top of the
+ * viewport so the actions stay reachable while selecting further down.
+ */
+function BulkBar({
+  count,
+  busy,
+  categories,
+  onCategory,
+  onTags,
+  onHidden,
+  onDelete,
+  onClear,
+}: {
+  count: number;
+  busy: boolean;
+  categories: BookmarkCategoryOption[];
+  onCategory: (categoryId: string) => void;
+  onTags: () => void;
+  onHidden: (hidden: boolean) => void;
+  onDelete: () => void;
+  onClear: () => void;
+}) {
+  // Remounts the picker after each pick, so it shows the placeholder again and
+  // picking the same category twice still fires.
+  const [pickerKey, setPickerKey] = useState(0);
+
+  return (
+    <div className="sticky top-14 z-20 flex flex-wrap items-center gap-2 rounded-card border border-primary/35 bg-primary/5 px-3 py-2 backdrop-blur lg:top-0">
+      <span className="flex items-center gap-2 text-xs font-medium">
+        <Check className="size-4 text-primary" aria-hidden />
+        已选 <span className="tabular-nums">{count}</span> 条书签
+      </span>
+
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        <Select
+          key={pickerKey}
+          disabled={busy}
+          onValueChange={(value) => {
+            setPickerKey((key) => key + 1);
+            onCategory(value);
+          }}
+        >
+          <SelectTrigger
+            className="h-8 w-auto min-w-32 gap-1.5 text-xs"
+            aria-label="批量改分类"
+          >
+            <FolderTree className="size-3.5 shrink-0 text-muted-foreground" />
+            <SelectValue placeholder="改分类…" />
+          </SelectTrigger>
+          <SelectContent>
+            {categories.map((category) => (
+              <SelectItem key={category.id} value={category.id}>
+                {category.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          disabled={busy}
+          onClick={onTags}
+        >
+          <Tag className="size-3.5" aria-hidden />
+          加标签
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          disabled={busy}
+          onClick={() => onHidden(true)}
+        >
+          <EyeOff className="size-3.5" aria-hidden />
+          设为私有
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          disabled={busy}
+          onClick={() => onHidden(false)}
+        >
+          <Eye className="size-3.5" aria-hidden />
+          设为公开
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 text-destructive hover:text-destructive"
+          disabled={busy}
+          onClick={onDelete}
+        >
+          <Trash2 className="size-3.5" aria-hidden />
+          删除
+        </Button>
+
+        <Button variant="ghost" size="sm" className="h-8" onClick={onClear}>
+          取消选择
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Comma-separated tag input for the batch "add tags" action. */
+function BulkTagDialog({
+  count,
+  busy,
+  onClose,
+  onSubmit,
+}: {
+  count: number;
+  busy: boolean;
+  onClose: () => void;
+  onSubmit: (tagsInput: string) => void;
+}) {
+  const [value, setValue] = useState('');
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>为 {count} 条书签添加标签</DialogTitle>
+          <DialogDescription>
+            用逗号分隔多个标签，已有的标签会直接复用，不存在的会新建。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="bulk-tags">标签</Label>
+          <Input
+            id="bulk-tags"
+            value={value}
+            maxLength={500}
+            autoFocus
+            placeholder="例如：效率, 工具, 前端"
+            onChange={(event) => setValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                if (value.trim()) onSubmit(value);
+              }
+            }}
+          />
+          <p className="text-xs text-muted-foreground">
+            这些标签会追加到每条书签现有标签之后，不会替换它们。
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            取消
+          </Button>
+          <Button
+            disabled={busy || !value.trim()}
+            onClick={() => onSubmit(value)}
+          >
+            {busy ? '添加中…' : '添加标签'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Tri-state checkbox for "select every bookmark in this category". */
+function SelectAllCheckbox({
+  ids,
+  selected,
+  onSelect,
+  label,
+}: {
+  ids: string[];
+  selected: ReadonlySet<string>;
+  onSelect: (ids: string[], next: boolean) => void;
+  label: string;
+}) {
+  const count = ids.reduce((sum, id) => sum + (selected.has(id) ? 1 : 0), 0);
+  const all = ids.length > 0 && count === ids.length;
+  const some = count > 0 && !all;
+
+  return (
+    <Checkbox
+      checked={all ? true : some ? 'indeterminate' : false}
+      onCheckedChange={(next) => onSelect(ids, next === true)}
+      aria-label={label}
+      title={label}
+    />
   );
 }
 
@@ -559,23 +887,38 @@ function ViewButton({
 function BookmarkRowImpl({
   bookmark,
   handle,
+  selected,
+  onToggleSelect,
   onEdit,
   onDelete,
 }: {
   bookmark: AdminBookmark;
   /** Null when drag-sorting is disabled. */
   handle: ReactNode;
+  selected: boolean;
+  onToggleSelect: (id: string, next: boolean) => void;
   onEdit: (bookmark: AdminBookmark) => void;
   onDelete: (bookmark: AdminBookmark) => void;
 }) {
   const hostname = hostnameOf(bookmark.url);
   return (
-    <div className="flex items-center gap-2 rounded-lg border bg-card px-2.5 py-2">
+    <div
+      className={cn(
+        'flex items-center gap-2 rounded-lg border bg-card px-2.5 py-2',
+        selected && 'border-primary/50 bg-primary/5',
+      )}
+    >
+      <Checkbox
+        checked={selected}
+        onCheckedChange={(next) => onToggleSelect(bookmark.id, next === true)}
+        aria-label={`选择 ${bookmark.title}`}
+      />
       {handle}
       <Favicon
         hostname={hostname}
         title={bookmark.title}
         iconUrl={bookmark.iconUrl}
+        bookmarkId={bookmark.id}
         className="size-6"
       />
       <div className="min-w-0 flex-1">
@@ -650,24 +993,40 @@ const BookmarkRow = memo(BookmarkRowImpl);
 function BookmarkGridCardImpl({
   bookmark,
   handle,
+  selected,
+  onToggleSelect,
   onEdit,
   onDelete,
 }: {
   bookmark: AdminBookmark;
   /** Null when drag-sorting is disabled. */
   handle: ReactNode;
+  selected: boolean;
+  onToggleSelect: (id: string, next: boolean) => void;
   onEdit: (bookmark: AdminBookmark) => void;
   onDelete: (bookmark: AdminBookmark) => void;
 }) {
   const hostname = hostnameOf(bookmark.url);
   return (
-    <div className="flex h-full flex-col gap-2 rounded-lg border bg-card p-3">
+    <div
+      className={cn(
+        'flex h-full flex-col gap-2 rounded-lg border bg-card p-3',
+        selected && 'border-primary/50 bg-primary/5',
+      )}
+    >
       <div className="flex items-start gap-2.5">
+        <Checkbox
+          className="mt-0.5"
+          checked={selected}
+          onCheckedChange={(next) => onToggleSelect(bookmark.id, next === true)}
+          aria-label={`选择 ${bookmark.title}`}
+        />
         {handle ? <span className="mt-0.5">{handle}</span> : null}
         <Favicon
           hostname={hostname}
           title={bookmark.title}
           iconUrl={bookmark.iconUrl}
+          bookmarkId={bookmark.id}
           className="size-7"
         />
         <div className="min-w-0 flex-1">

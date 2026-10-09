@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
 import { createBookmark, getBookmarkByUrl } from '@/db/queries/bookmarks';
+import { listCategoryOptions } from '@/db/queries/categories';
 import { errorMessage, pgErrorCode } from '@/db/client';
+import { searchExtBookmarks } from '@/db/queries/search';
 import { extJson, extPreflight, verifyExtToken } from '@/lib/ext-api';
 import { queueAiTagGeneration } from '@/lib/ai-tags';
 import { revalidateSite } from '@/lib/revalidate';
@@ -9,7 +11,19 @@ import { httpUrlSchema, LIMITS, optionalHttpUrlSchema } from '@/lib/validation';
 
 export const dynamic = 'force-dynamic';
 
-/** Creates a bookmark from the browser extension. */
+/** Lists existing bookmarks and creates new ones for the browser extension. */
+
+const EXT_SEARCH_LIMIT_MAX = 50;
+const EXT_SEARCH_TERM_MAX = 100;
+
+const searchSchema = z.object({
+  q: z
+    .string()
+    .trim()
+    .min(1, '请输入搜索关键词')
+    .max(EXT_SEARCH_TERM_MAX, `关键词最长 ${EXT_SEARCH_TERM_MAX} 个字符`),
+  limit: z.coerce.number().int().min(1).max(EXT_SEARCH_LIMIT_MAX).default(20),
+});
 
 const bodySchema = z.object({
   title: z
@@ -41,6 +55,40 @@ const bodySchema = z.object({
 
 export async function OPTIONS() {
   return extPreflight();
+}
+
+/** Searches existing bookmarks for the popup's manager view. */
+export async function GET(request: Request) {
+  if (!(await verifyExtToken(request))) {
+    return extJson({ ok: false, message: '扩展令牌无效或未配置' }, { status: 401 });
+  }
+
+  const params = new URL(request.url).searchParams;
+  const parsed = searchSchema.safeParse({
+    q: params.get('q') ?? '',
+    limit: params.get('limit') ?? undefined,
+  });
+  if (!parsed.success) {
+    return extJson(
+      { ok: false, message: parsed.error.issues[0]?.message ?? '输入有误' },
+      { status: 400 },
+    );
+  }
+
+  // Categories ride along so the manager's editor always has the full list.
+  const [bookmarks, categories] = await Promise.all([
+    searchExtBookmarks(parsed.data.q, parsed.data.limit),
+    listCategoryOptions(),
+  ]);
+
+  return extJson({
+    ok: true,
+    categories,
+    bookmarks: bookmarks.map((bookmark) => ({
+      ...bookmark,
+      tags: bookmark.tags.map((tag) => tag.name),
+    })),
+  });
 }
 
 export async function POST(request: Request) {

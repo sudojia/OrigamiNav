@@ -124,3 +124,73 @@ export function createBookmark(
     body: JSON.stringify(input),
   });
 }
+
+export interface ExtBookmark {
+  id: string;
+  title: string;
+  url: string;
+  description: string;
+  /** Private bookmarks stay invisible on the public site (admin only). */
+  hidden: boolean;
+  categoryId: string;
+  categoryName: string;
+  tags: string[];
+}
+
+/** Category option for the manager's editor. */
+export interface ExtCategoryOption {
+  id: string;
+  name: string;
+}
+
+export interface ExtSearchResult {
+  bookmarks: ExtBookmark[];
+  /** Live categories, so the editor can move a bookmark without a second call. */
+  categories: ExtCategoryOption[];
+}
+
+/** Live bookmarks matching a keyword; hidden ones are included. */
+export function searchBookmarks(
+  config: ExtConfig,
+  query: string,
+): Promise<ExtSearchResult> {
+  return request<ExtSearchResult>(
+    config,
+    `/api/ext/bookmarks?q=${encodeURIComponent(query)}`,
+  );
+}
+
+export interface UpdateBookmarkInput {
+  title: string;
+  categoryId: string;
+  tags: string[];
+}
+
+/** Replaces a bookmark's title, category and tags. */
+export async function updateBookmark(
+  config: ExtConfig,
+  id: string,
+  input: UpdateBookmarkInput,
+): Promise<void> {
+  await request<unknown>(
+    config,
+    `/api/ext/bookmarks/${encodeURIComponent(id)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+/** Moves a bookmark to the site's recycle bin. */
+export async function deleteBookmark(
+  config: ExtConfig,
+  id: string,
+): Promise<void> {
+  await request<unknown>(
+    config,
+    `/api/ext/bookmarks/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
+}

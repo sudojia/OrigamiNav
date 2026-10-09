@@ -4,7 +4,6 @@ import { z } from 'zod';
 import { after } from 'next/server';
 
 import { getAiConfig, type AiConfig } from '@/db/queries/ai';
-import { getSiteSettings } from '@/db/queries/settings';
 import { getTagUsage } from '@/db/queries/nav';
 import { attachTagsToBookmarks, attachTagsToBookmark, replaceBookmarkTags } from '@/db/queries/tags';
 import {
@@ -13,9 +12,9 @@ import {
   isTransientAiError,
   parseJsonObject,
 } from '@/lib/ai';
+import { getAiConcurrencyLimit, withAiQueue } from '@/lib/ai-queue';
 import { revalidateSite } from '@/lib/revalidate';
 import { LIMITS } from '@/lib/validation';
-import { clampAiConcurrency } from '@/types/nav';
 
 /**
  * Background AI tagging. Failures are best-effort: a bookmark simply stays
@@ -93,43 +92,7 @@ async function generateTagNames(
   ).slice(0, config.tagMax);
 }
 
-// ─── Concurrency queue ──────────────────────────────────────────────────────
-//
-// In-process FIFO semaphore; the limit is read once per tagging job, so a
-// long batch keeps the value it started with.
-
-let active = 0;
-const waiters: Array<() => void> = [];
-
-/** Concurrency limit for one tagging job; clamped to the configured bounds. */
-async function getConcurrencyLimit(): Promise<number> {
-  return clampAiConcurrency((await getSiteSettings()).aiConcurrency);
-}
-
-async function acquire(limit: number): Promise<void> {
-  if (active < limit) {
-    active += 1;
-    return;
-  }
-  // The releasing task hands its slot straight over, so `active` stays put.
-  await new Promise<void>((resolve) => waiters.push(resolve));
-}
-
-function release(): void {
-  const next = waiters.shift();
-  if (next) next();
-  else active -= 1;
-}
-
-/** Runs one provider-bound task through the queue. */
-async function withQueue<T>(task: () => Promise<T>, limit: number): Promise<T> {
-  await acquire(limit);
-  try {
-    return await task();
-  } finally {
-    release();
-  }
-}
+// ─── Provider calls ─────────────────────────────────────────────────────────
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -186,9 +149,9 @@ export async function generateTagsWithQueue(
   // trips, not provider work, so they must not hold a concurrency slot.
   const [existingTags, limit] = await Promise.all([
     options.topTags ?? getTopTagNames(),
-    getConcurrencyLimit(),
+    getAiConcurrencyLimit(),
   ]);
-  const names = await withQueue(
+  const names = await withAiQueue(
     () => generateNamesWithRetry(config, page, existingTags),
     limit,
   );
@@ -218,7 +181,7 @@ export async function generateTagsForBatch(
 
   const [existingTags, limit] = await Promise.all([
     getTopTagNames(),
-    getConcurrencyLimit(),
+    getAiConcurrencyLimit(),
   ]);
 
   // Best-effort per target: one provider failure must not drop the rest.
@@ -228,7 +191,7 @@ export async function generateTagsForBatch(
         try {
           return {
             bookmarkId: target.id,
-            names: await withQueue(
+            names: await withAiQueue(
               () => generateNamesWithRetry(config, target, existingTags),
               limit,
             ),

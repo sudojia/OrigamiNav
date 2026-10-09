@@ -1,6 +1,15 @@
 import 'server-only';
 
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNull,
+  notInArray,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
 import { newId, newRow, nowIso } from '@/lib/ids';
 import { buildSearchIndex } from '@/lib/search-index';
@@ -269,28 +278,110 @@ export async function updateBookmark(
 }
 
 /**
+ * Correlated stash of a bookmark's tag ids, written to `deleted_tag_ids` when a
+ * row is soft-deleted so a restore re-attaches exactly the tags it had.
+ * `rowId` is the outer row's id column as referenced in that statement, which
+ * matters when the table is aliased.
+ */
+export function stashTagIdsSql(rowId: SQL): SQL {
+  return sql`coalesce((
+    select string_agg(bt.tag_id, ',')
+    from ${bookmarksTags} as bt
+    where bt.bookmark_id = ${rowId}
+  ), '')`;
+}
+
+/**
  * Moves a bookmark to the recycle bin. Its tag links are detached and stashed
  * on the row, so a restore re-attaches exactly the tags it had.
  */
 export async function deleteBookmark(id: string): Promise<void> {
-  await db.transaction(async (tx) => {
-    const links = await tx
-      .select({ tagId: bookmarksTags.tagId })
-      .from(bookmarksTags)
-      .where(eq(bookmarksTags.bookmarkId, id));
+  await deleteBookmarks([id]);
+}
 
+/**
+ * Moves many bookmarks to the recycle bin in two statements: the tag ids are
+ * stashed on each row, then the links are dropped. Returns how many moved, so a
+ * selection that is already gone reports zero instead of failing.
+ */
+export async function deleteBookmarks(ids: string[]): Promise<number> {
+  if (!ids.length) return 0;
+  return db.transaction(async (tx) => {
     const stamp = nowIso();
-    await tx
+    const moved = await tx
       .update(bookmarks)
       .set({
         deletedAt: stamp,
-        deletedTagIds: links.map((link) => link.tagId).join(','),
+        deletedTagIds: stashTagIdsSql(sql`${bookmarks.id}`),
         updatedAt: stamp,
       })
-      .where(and(eq(bookmarks.id, id), isNull(bookmarks.deletedAt)));
+      .where(and(inArray(bookmarks.id, ids), isNull(bookmarks.deletedAt)))
+      .returning({ id: bookmarks.id });
+    if (!moved.length) return 0;
 
-    await tx.delete(bookmarksTags).where(eq(bookmarksTags.bookmarkId, id));
+    await tx
+      .delete(bookmarksTags)
+      .where(
+        inArray(
+          bookmarksTags.bookmarkId,
+          moved.map((row) => row.id),
+        ),
+      );
+    return moved.length;
   });
+}
+
+/**
+ * Moves many bookmarks into one category, appended after its existing rows in
+ * the order given. Two statements: read the target's current end (ignoring the
+ * rows being moved, so a same-category move is a no-op reorder), then one
+ * `UPDATE ... FROM (VALUES ...)`.
+ */
+export async function setBookmarksCategory(
+  ids: string[],
+  categoryId: string,
+): Promise<number> {
+  if (!ids.length) return 0;
+  return db.transaction(async (tx) => {
+    const stamp = nowIso();
+    const maxRows = await tx
+      .select({ max: sql<number>`coalesce(max(${bookmarks.sortOrder}), -1)::int` })
+      .from(bookmarks)
+      .where(
+        and(
+          eq(bookmarks.categoryId, categoryId),
+          isNull(bookmarks.deletedAt),
+          notInArray(bookmarks.id, ids),
+        ),
+      );
+    const base = (maxRows[0]?.max ?? -1) + 1;
+
+    const pairs = ids.map((id, index) => sql`(${id}::text, ${index}::integer)`);
+    const result = await tx.execute(sql`
+      UPDATE ${bookmarks} AS b
+      SET category_id = ${categoryId},
+          sort_order = ${base} + v.ord,
+          updated_at = ${stamp}
+      FROM (VALUES ${sql.join(pairs, sql`, `)}) AS v(id, ord)
+      WHERE b.id = v.id AND b.deleted_at IS NULL
+      RETURNING b.id
+    `);
+    return result.rows.length;
+  });
+}
+
+/** Sets the private flag on many bookmarks. Returns how many changed. */
+export async function setBookmarksHidden(
+  ids: string[],
+  hidden: boolean,
+): Promise<number> {
+  if (!ids.length) return 0;
+  const changed = await db
+    .update(bookmarks)
+    .set({ hidden, updatedAt: nowIso() })
+    .where(and(inArray(bookmarks.id, ids), isNull(bookmarks.deletedAt)))
+    .returning({ id: bookmarks.id });
+  return changed.length;
 }
 
 /** Adds one to a bookmark's click count. */
@@ -354,16 +445,19 @@ export async function getBookmarkByUrl(
   );
 }
 
-/** Text fields the AI tagger needs for one bookmark. */
-export type AiTagSource = {
+/** One bookmark's fields, without the large search index. */
+export type BookmarkCore = {
   id: string;
   title: string;
   url: string;
   description: string;
+  iconUrl: string | null;
+  hidden: boolean;
+  categoryId: string;
 };
 
-/** Loads the fields the AI tagger works from; null when the row is gone. */
-export async function getBookmarkById(id: string): Promise<AiTagSource | null> {
+/** Core fields of a live bookmark; null when it is missing or in the bin. */
+export async function getBookmarkById(id: string): Promise<BookmarkCore | null> {
   return safeQuery(
     'getBookmarkById',
     async (database) => {
@@ -373,11 +467,30 @@ export async function getBookmarkById(id: string): Promise<AiTagSource | null> {
           title: bookmarks.title,
           url: bookmarks.url,
           description: bookmarks.description,
+          iconUrl: bookmarks.iconUrl,
+          hidden: bookmarks.hidden,
+          categoryId: bookmarks.categoryId,
         })
         .from(bookmarks)
         .where(and(eq(bookmarks.id, id), isNull(bookmarks.deletedAt)))
         .limit(1);
       return rows[0] ?? null;
+    },
+    null,
+  );
+}
+
+/** Manual icon URL of a live bookmark; null when unset, missing or in the bin. */
+export async function getBookmarkIconUrl(id: string): Promise<string | null> {
+  return safeQuery(
+    'getBookmarkIconUrl',
+    async (database) => {
+      const rows = await database
+        .select({ iconUrl: bookmarks.iconUrl })
+        .from(bookmarks)
+        .where(and(eq(bookmarks.id, id), isNull(bookmarks.deletedAt)))
+        .limit(1);
+      return rows[0]?.iconUrl ?? null;
     },
     null,
   );

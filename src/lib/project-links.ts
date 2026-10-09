@@ -14,3 +14,9 @@ export const PROJECT_LICENSE_URL = `${PROJECT_URL}/blob/master/LICENSE`;
 
 /** User-Agent for the admin metadata scraper. */
 export const PROJECT_USER_AGENT = `OrigamiNav/1.0 (+${PROJECT_URL}; bookmark metadata fetcher)`;
+
+/**
+ * User-Agent for third-party icon services, which answer 403 to a bare bot
+ * token; the `compatible` form is the standard way to stay identifiable.
+ */
+export const ICON_FETCH_USER_AGENT = `Mozilla/5.0 (compatible; OrigamiNav/1.0; +${PROJECT_URL})`;

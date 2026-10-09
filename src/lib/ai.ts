@@ -96,12 +96,13 @@ async function requestJson(
   url: string,
   init: RequestInit,
   protocol: AiProtocol = 'openai',
+  timeoutMs: number = TIMEOUT_MS,
 ): Promise<unknown> {
   let response: Response;
   try {
     response = await fetch(url, {
       ...init,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
       cache: 'no-store',
     });
   } catch (error) {
@@ -156,11 +157,21 @@ export async function listModels(config: {
 
 export type ChatMessage = { role: 'system' | 'user'; content: string };
 
+export type ChatOptions = {
+  maxTokens?: number;
+  /**
+   * Overrides the default request timeout. Reasoning models answer a short
+   * prompt in anywhere from 2 to 30 seconds, so callers that make the admin
+   * wait need more headroom than the default.
+   */
+  timeoutMs?: number;
+};
+
 /** Runs one chat completion and returns assistant text. Dispatches on the configured protocol. */
 export async function chatCompletion(
   config: AiProviderConfig,
   messages: ChatMessage[],
-  options: { maxTokens?: number } = {},
+  options: ChatOptions = {},
 ): Promise<string> {
   return config.protocol === 'anthropic'
     ? anthropicCompletion(config, messages, options)
@@ -175,19 +186,24 @@ export async function chatCompletion(
 async function openAiCompletion(
   config: AiProviderConfig,
   messages: ChatMessage[],
-  options: { maxTokens?: number },
+  options: ChatOptions,
 ): Promise<string> {
   const url = endpoint(config.baseUrl, '/chat/completions');
 
   const send = (body: Record<string, unknown>) =>
-    requestJson(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
+    requestJson(
+      url,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+      'openai',
+      options.timeoutMs,
+    );
 
   const body = {
     model: config.model,
@@ -259,7 +275,7 @@ function describeEmptyContent(finishReason: unknown): string {
 async function anthropicCompletion(
   config: AiProviderConfig,
   messages: ChatMessage[],
-  options: { maxTokens?: number },
+  options: ChatOptions,
 ): Promise<string> {
   const system = messages
     .filter((message) => message.role === 'system')
@@ -283,6 +299,7 @@ async function anthropicCompletion(
       }),
     },
     'anthropic',
+    options.timeoutMs,
   );
 
   const blocks = (

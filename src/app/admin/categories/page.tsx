@@ -15,6 +15,7 @@ export default async function AdminCategoriesPage() {
     <CategoryManager
       categories={categories}
       deleteMode={settings.categoryDeleteMode}
+      aiEnabled={settings.aiEnabled}
     />
   );
 }

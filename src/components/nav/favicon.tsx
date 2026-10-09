@@ -2,32 +2,26 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { iconSourceTemplates } from '@/lib/icon-providers';
 import { cn } from '@/lib/utils';
 import { ICON_TEMPLATE_PLACEHOLDER, type IconService } from '@/types/nav';
 
 import { useIconSettings } from './icon-settings';
 
 /**
- * Resolves a bookmark favicon via the manual `iconUrl`, then the configured
- * icon service (from <IconSettingsProvider>, or an override prop used by the
- * settings preview); falls back to a first-letter colour block. A
- * per-provider timeout advances on a hung request.
+ * Resolves a bookmark favicon through the site's own icon proxy, which runs the
+ * configured source chain server-side and caches the bytes — so the visitor's
+ * browser normally never talks to a third-party service. The manual `iconUrl`
+ * is the proxy's first source, and stays a direct fallback for the rare case
+ * where the server cannot fetch it but the browser can. The settings preview
+ * overrides the service, and an unsaved choice has no cache entry yet, so it
+ * queries the providers directly. A per-candidate timeout advances on a hung
+ * request.
  */
 
-type Provider = (hostname: string) => string;
-
-const PROVIDERS: Record<
-  'cccyun' | 'xinac' | 'faviconim' | 'duckduckgo' | 'google',
-  Provider
-> = {
-  cccyun: (host) => `https://favicon.cccyun.cc/${host}`,
-  xinac: (host) => `https://api.xinac.net/icon/?url=${host}`,
-  faviconim: (host) => `https://favicon.im/${host}?larger=true`,
-  duckduckgo: (host) => `https://icons.duckduckgo.com/ip3/${host}.ico`,
-  google: (host) => `https://www.google.com/s2/favicons?domain=${host}&sz=64`,
-};
-
-const PROVIDER_TIMEOUT_MS = 2000;
+/** The proxy walks the whole source chain server-side; give it room. */
+const PROXY_TIMEOUT_MS = 8000;
+const DIRECT_TIMEOUT_MS = 2000;
 
 /** Distance outside the viewport at which a card starts resolving its icon.
  *  Matches the browser's own lazy-loading threshold, so the chain never starts
@@ -69,24 +63,6 @@ function observeOnce(element: Element, onVisible: () => void): () => void {
   };
 }
 
-/** Providers for the configured service; 'auto' pairs a fast CN source with an independent fallback. */
-function providerChain(
-  service: IconService,
-  customTemplate: string | null,
-): Provider[] {
-  switch (service) {
-    case 'off':
-      return [];
-    case 'custom':
-      if (!customTemplate?.includes(ICON_TEMPLATE_PLACEHOLDER)) return [];
-      return [(host) => customTemplate.replaceAll(ICON_TEMPLATE_PLACEHOLDER, host)];
-    case 'auto':
-      return [PROVIDERS.cccyun, PROVIDERS.faviconim];
-    default:
-      return [PROVIDERS[service]];
-  }
-}
-
 /** Returns a stable hue for a string. */
 function hueOf(input: string): number {
   let hash = 0;
@@ -100,13 +76,17 @@ export function Favicon({
   hostname,
   title,
   iconUrl,
+  bookmarkId,
   service: serviceOverride,
   customTemplate: templateOverride,
   className,
 }: {
   hostname: string;
   title: string;
+  /** Manual icon URL; the proxy prefers it and it stays the last resort. */
   iconUrl?: string | null;
+  /** Lets the proxy resolve this bookmark's own icon URL from the database. */
+  bookmarkId?: string;
   /** Overrides the provider context; used by the live settings preview. */
   service?: IconService;
   /** Overrides the custom template from the context. */
@@ -116,16 +96,35 @@ export function Favicon({
   const settings = useIconSettings();
   const service = serviceOverride ?? settings.service;
   const customTemplate = templateOverride ?? settings.customTemplate;
+  // An override means the settings preview, which shows an unsaved choice.
+  const previewing =
+    serviceOverride !== undefined || templateOverride !== undefined;
 
-  // Candidate list: manual icon first, then the configured provider chain.
   const candidates = useMemo(() => {
     const list: string[] = [];
-    if (iconUrl) list.push(iconUrl);
-    if (hostname) {
-      list.push(...providerChain(service, customTemplate).map((p) => p(hostname)));
+    if (!hostname) return iconUrl ? [iconUrl] : [];
+
+    const templates = iconSourceTemplates(service, customTemplate);
+
+    if (previewing) {
+      // The cache has never seen an unsaved choice, so the preview goes direct.
+      if (iconUrl) list.push(iconUrl);
+      list.push(
+        ...templates.map((template) =>
+          template.replaceAll(ICON_TEMPLATE_PLACEHOLDER, hostname),
+        ),
+      );
+      return list;
     }
+
+    if (templates.length > 0) {
+      const query = bookmarkId ? `?b=${encodeURIComponent(bookmarkId)}` : '';
+      list.push(`/api/icon/${encodeURIComponent(hostname)}${query}`);
+    }
+    // Reached only when the proxy had nothing to serve.
+    if (iconUrl) list.push(iconUrl);
     return list;
-  }, [iconUrl, hostname, service, customTemplate]);
+  }, [iconUrl, bookmarkId, hostname, service, customTemplate, previewing]);
 
   const [index, setIndex] = useState(0);
   // Drives the fade-in; flipped when the current candidate has painted.
@@ -148,6 +147,9 @@ export function Favicon({
   const exhausted = index >= candidates.length;
   // Resolves only when there is a candidate left and the card is in range.
   const resolving = nearViewport && !exhausted && candidates.length > 0;
+  const resolveTimeoutMs = candidates[index]?.startsWith('/api/icon/')
+    ? PROXY_TIMEOUT_MS
+    : DIRECT_TIMEOUT_MS;
 
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearTimer = useCallback(() => {
@@ -170,9 +172,9 @@ export function Favicon({
 
   useEffect(() => {
     if (!resolving) return;
-    timerRef.current = setTimeout(advance, PROVIDER_TIMEOUT_MS);
+    timerRef.current = setTimeout(advance, resolveTimeoutMs);
     return clearTimer;
-  }, [resolving, advance, clearTimer, index, signature]);
+  }, [resolving, advance, clearTimer, index, signature, resolveTimeoutMs]);
 
   const letter = (title.trim()[0] ?? hostname[0] ?? '?').toUpperCase();
 

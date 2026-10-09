@@ -1,10 +1,14 @@
 'use client';
 
-import { FolderTree, Pencil, Plus, Trash2 } from 'lucide-react';
+import { FolderTree, Loader2, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useActionState, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 
+import {
+  aiCategoryDescriptionAction,
+  aiFillCategoryDescriptionsAction,
+} from '@/actions/ai';
 import {
   createCategoryAction,
   deleteCategoryAction,
@@ -25,6 +29,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 import type { CategoryWithCount } from '@/db/queries/categories';
 import type { CategoryDeleteMode } from '@/types/nav';
@@ -37,14 +46,21 @@ import { PageHeader } from './page-header';
 export function CategoryManager({
   categories,
   deleteMode,
+  aiEnabled,
 }: {
   categories: CategoryWithCount[];
   deleteMode: CategoryDeleteMode;
+  aiEnabled: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState<CategoryWithCount | 'new' | null>(null);
   const [deleting, setDeleting] = useState<CategoryWithCount | null>(null);
+  const [filling, setFilling] = useState(false);
+  // Category whose description is being generated right now.
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+  // Both paths share one provider queue, so they must not run at the same time.
+  const aiBusy = filling || generatingId !== null;
   // Disables the confirm when the category still has bookmarks.
   const deleteBlocked =
     deleteMode === 'protected' && (deleting?.bookmarkCount ?? 0) > 0;
@@ -69,6 +85,48 @@ export function CategoryManager({
     }
   };
 
+  const handleFillDescriptions = async () => {
+    setFilling(true);
+    const toastId = toast.loading('正在根据各分类下的书签生成描述…');
+    try {
+      const result = await aiFillCategoryDescriptionsAction();
+      if (!result.ok) {
+        toast.error(result.message, { id: toastId });
+        return;
+      }
+      const suffix =
+        result.remaining > 0
+          ? `，还有 ${result.remaining} 个待生成，可再次点击`
+          : '';
+      toast.success(`${result.message}${suffix}`, { id: toastId });
+      refresh();
+    } catch (error) {
+      console.error('[origaminav] ai category descriptions failed', error);
+      toast.error('生成失败，请检查网络后重试', { id: toastId });
+    } finally {
+      setFilling(false);
+    }
+  };
+
+  const handleGenerateDescription = async (category: CategoryWithCount) => {
+    setGeneratingId(category.id);
+    const toastId = toast.loading(`正在生成「${category.name}」的描述…`);
+    try {
+      const result = await aiCategoryDescriptionAction(category.id);
+      if (!result.ok) {
+        toast.error(result.message, { id: toastId });
+        return;
+      }
+      toast.success(result.message, { id: toastId });
+      refresh();
+    } catch (error) {
+      console.error('[origaminav] ai category description failed', error);
+      toast.error('生成失败，请检查网络后重试', { id: toastId });
+    } finally {
+      setGeneratingId(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -80,6 +138,16 @@ export function CategoryManager({
             : '拖动手柄调整前台显示顺序。分类下存在书签时不可删除。'
         }
       >
+        {aiEnabled ? (
+          <Button
+            variant="outline"
+            onClick={handleFillDescriptions}
+            disabled={aiBusy}
+          >
+            <Sparkles className="size-4" />
+            {filling ? '生成中…' : 'AI 补全描述'}
+          </Button>
+        ) : null}
         <Button onClick={() => setEditing('new')}>
           <Plus className="size-4" />
           新建分类
@@ -127,23 +195,35 @@ export function CategoryManager({
                 <span className="hidden font-mono text-xs text-muted-foreground/70 md:inline">
                   /{category.slug}
                 </span>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`编辑 ${category.name}`}
+                {aiEnabled ? (
+                  <RowAction
+                    label={`AI 生成 ${category.name} 的描述`}
+                    hint="AI 生成描述"
+                    disabled={aiBusy}
+                    onClick={() => handleGenerateDescription(category)}
+                  >
+                    {generatingId === category.id ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="size-4" />
+                    )}
+                  </RowAction>
+                ) : null}
+                <RowAction
+                  label={`编辑 ${category.name}`}
+                  hint="编辑分类"
                   onClick={() => setEditing(category)}
                 >
                   <Pencil className="size-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label={`删除 ${category.name}`}
-                  className="text-destructive hover:text-destructive"
+                </RowAction>
+                <RowAction
+                  label={`删除 ${category.name}`}
+                  hint="移入回收站"
+                  destructive
                   onClick={() => setDeleting(category)}
                 >
                   <Trash2 className="size-4" />
-                </Button>
+                </RowAction>
               </div>
             );
           }}
@@ -171,6 +251,43 @@ export function CategoryManager({
         onConfirm={handleDelete}
       />
     </div>
+  );
+}
+
+/** Icon-only row action: a hover hint for sighted users, `label` for screen readers. */
+function RowAction({
+  label,
+  hint,
+  onClick,
+  disabled,
+  destructive,
+  children,
+}: {
+  label: string;
+  hint: string;
+  onClick: () => void;
+  disabled?: boolean;
+  destructive?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={label}
+          disabled={disabled}
+          onClick={onClick}
+          className={
+            destructive ? 'text-destructive hover:text-destructive' : undefined
+          }
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{hint}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -244,9 +361,12 @@ function CategoryFormDialog({
                 name="description"
                 defaultValue={category?.description ?? ''}
                 maxLength={200}
-                rows={2}
+                rows={3}
                 placeholder="一句话说明这个分类收录什么（可选）"
               />
+              <p className="text-xs text-muted-foreground">
+                显示在分类页顶部，并作为该页的搜索摘要；留空则使用通用文案。
+              </p>
             </div>
 
             <div className="flex items-center justify-between gap-3">

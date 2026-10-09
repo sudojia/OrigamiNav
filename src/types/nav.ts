@@ -174,6 +174,12 @@ export type SiteSettings = {
   aiTagMaxLen: number;
   /** Max concurrent AI tag-generation requests, admin-configurable. */
   aiConcurrency: number;
+  /**
+   * False when the settings could not be read at all (no database configured,
+   * or the query failed). Every other field is then a default, so `installed`
+   * must not be read as "not installed" — it means "unknown".
+   */
+  available: boolean;
   installed: boolean;
 };
 
@@ -328,5 +334,8 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   aiEnabled: false,
   aiTagMaxLen: DEFAULT_AI_TAG_MAX_LEN,
   aiConcurrency: DEFAULT_AI_CONCURRENCY,
+  // The defaults are what a caller sees when the read failed, so they must
+  // announce that they are not real data.
+  available: false,
   installed: false,
 };

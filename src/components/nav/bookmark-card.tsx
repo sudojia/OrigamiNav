@@ -58,6 +58,7 @@ function BookmarkCardImpl({
           hostname={bookmark.hostname}
           title={bookmark.title}
           iconUrl={bookmark.iconUrl}
+          bookmarkId={bookmark.id}
           className="size-8"
         />
         <div className="min-w-0 flex-1">

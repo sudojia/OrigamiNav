@@ -1,9 +1,11 @@
 import type { Metadata } from 'next';
+import { unstable_noStore } from 'next/cache';
 import { notFound } from 'next/navigation';
 
 import { AnalyticsScripts } from '@/components/analytics/analytics-scripts';
 import { BootstrapRedirect } from '@/components/auth/bootstrap-redirect';
 import { NavShell } from '@/components/nav/nav-shell';
+import { SiteUnavailable } from '@/components/nav/site-unavailable';
 import { BreadcrumbJsonLd, CategoryJsonLd } from '@/components/seo/json-ld';
 import {
   getCategoryBySlug,
@@ -36,6 +38,12 @@ export async function generateMetadata({
     getCategoryBySlug(slug),
   ]);
 
+  // A read failure is not "this category does not exist"; say so, and keep the
+  // transient page out of the index.
+  if (!settings.available) {
+    return { title: '暂时无法连接', robots: { index: false, follow: false } };
+  }
+
   // Hidden and unknown categories have no public page.
   if (!category || category.hidden) {
     return { title: '分类不存在', robots: { index: false, follow: false } };
@@ -67,14 +75,22 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
   const { slug } = await params;
   const settings = await getSiteSettings();
 
+  // Unreadable settings mean "unknown", not "not installed"; see the nav page.
+  if (!settings.available) {
+    unstable_noStore();
+    return <SiteUnavailable />;
+  }
+
   if (!settings.installed) {
     return <BootstrapRedirect to="/setup" />;
   }
 
   const nav = await getNavData();
   // Database unreachable: keep the page alive with the offline notice rather
-  // than 404 a category that still exists.
+  // than 404 a category that still exists. Not cached, so the page recovers as
+  // soon as the database answers again.
   if (!nav.available) {
+    unstable_noStore();
     return <NavShell nav={nav} settings={settings} pinnedSlug={slug} />;
   }
 

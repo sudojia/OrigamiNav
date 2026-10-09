@@ -237,6 +237,7 @@ export default async function AdminHomePage() {
                   <Favicon
                     hostname={hostnameOf(bookmark.url)}
                     title={bookmark.title}
+                    bookmarkId={bookmark.id}
                     className="mt-0.5 size-7 shrink-0 rounded-md"
                   />
                   <span className="min-w-0 flex-1">

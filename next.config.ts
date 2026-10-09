@@ -95,8 +95,9 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        // Every route except the uploaded site icon, which sets its own sandbox policy.
-        source: '/:path((?!api/site-icon$).*)',
+        // Every route except the uploaded site icon and the cached bookmark
+        // icon, which set their own policy for a sandboxed SVG.
+        source: '/:path((?!api/site-icon$)(?!api/icon/[^/]+$).*)',
         headers: [
           { key: 'Content-Security-Policy', value: contentSecurityPolicy },
         ],

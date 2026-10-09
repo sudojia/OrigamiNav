@@ -197,6 +197,8 @@ function settingsFromRows(
     ),
     aiConcurrency: clampAiConcurrency(map.get(SETTING_KEYS.aiConcurrency)),
     aiTagMaxLen: clampAiTagMaxLen(map.get(SETTING_KEYS.aiTagMaxLen)),
+    // These rows were read, so the values are real.
+    available: true,
     installed: map.get(SETTING_KEYS.installed) === '1',
   };
 }

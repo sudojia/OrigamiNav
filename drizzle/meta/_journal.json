@@ -15,6 +15,13 @@
       "when": 1791459744949,
       "tag": "0001_soft_delete",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791511596218,
+      "tag": "0002_bright_mandarin",
+      "breakpoints": true
     }
   ]
 }
