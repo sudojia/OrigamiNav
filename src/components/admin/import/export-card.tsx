@@ -1,6 +1,5 @@
-import { Download, FolderTree, Link2, TriangleAlert } from 'lucide-react';
+import { Download, FileJson, FolderTree, Globe, Link2, TriangleAlert } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
 import { backupSummary, type BackupStatus } from '@/lib/backup-status';
 import { cn } from '@/lib/utils';
 
@@ -48,18 +47,63 @@ export function ExportCard({
           </span>
         </div>
 
-        <Button asChild className="w-full shadow-sm">
-          <a href="/api/export" download>
-            <Download className="size-4" />
-            下载 JSON 备份
-          </a>
-        </Button>
-
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          完整 JSON，包含分类、书签、标签与排序。用于迁移、备份或在另一台自托管实例上还原。
-        </p>
+        <div className="space-y-2">
+          <ExportTile
+            href="/api/export"
+            Icon={FileJson}
+            title="JSON 备份"
+            hint="完整数据，可在另一台实例还原"
+          />
+          <ExportTile
+            href="/api/export?format=html"
+            Icon={Globe}
+            title="浏览器书签 HTML"
+            hint="导入 Chrome / Edge / Firefox，私有标记会丢失"
+          />
+        </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * One export format. Both carry the same weight: neither is a fallback for the
+ * other, they answer different questions ("restore this site" vs "take these
+ * links to my browser").
+ */
+function ExportTile({
+  href,
+  Icon,
+  title,
+  hint,
+}: {
+  href: string;
+  Icon: typeof Link2;
+  title: string;
+  hint: string;
+}) {
+  return (
+    <a
+      href={href}
+      download
+      className="group flex items-center gap-3 rounded-lg border border-border/60 bg-muted/40 px-3 py-2.5 transition-all hover:border-primary/40 hover:bg-accent/40 hover:shadow-sm focus-visible:border-primary/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+    >
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary/70 text-primary-foreground shadow-sm">
+        <Icon className="size-4" aria-hidden />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium group-hover:text-primary">
+          {title}
+        </span>
+        <span className="mt-0.5 block text-[0.6875rem] leading-snug text-muted-foreground">
+          {hint}
+        </span>
+      </span>
+      <Download
+        className="size-3.5 shrink-0 text-muted-foreground/60 transition-colors group-hover:text-primary"
+        aria-hidden
+      />
+    </a>
   );
 }
 

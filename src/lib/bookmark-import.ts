@@ -56,6 +56,9 @@ export function parseNetscapeBookmarks(html: string): ParsedImportBookmark[] {
       lastBookmark = null;
     } else if (upper === '<H3') {
       pendingFolder = sanitizeScrapedText(decodeEntities(h3Text ?? ''), 40);
+      // A folder's own <DD> belongs to the folder, which the parser does not
+      // read; without this it would overwrite the description above it.
+      lastBookmark = null;
     } else if (upper.startsWith('<A')) {
       const href = attributeOf(aAttrs ?? '', 'HREF');
       const rawTitle = sanitizeScrapedText(decodeEntities(aText ?? ''), 100);
