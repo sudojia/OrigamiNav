@@ -2,6 +2,8 @@ import 'server-only';
 
 import { pinyin } from 'pinyin-pro';
 
+import { SLUG_BASE_MAX } from '@/types/nav';
+
 /**
  * Server-only pinyin helpers; the pinyin-pro dictionary stays off the client
  * bundle. Scripts reusing this module must run with `--conditions=react-server`.
@@ -86,7 +88,7 @@ export function pinyinParts(text: string): PinyinParts {
 
 /**
  * Shared normalization for slug output: NFKC fold, lowercase, strip quotes,
- * collapse every non letter/number run into `-`, trim, cap at 64 chars.
+ * collapse every non letter/number run into `-`, trim, cap at SLUG_BASE_MAX.
  */
 function normalizeSlug(input: string): string {
   return input
@@ -96,7 +98,7 @@ function normalizeSlug(input: string): string {
     .replace(/['"’“”]/g, '')
     .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 64);
+    .slice(0, SLUG_BASE_MAX);
 }
 
 /**

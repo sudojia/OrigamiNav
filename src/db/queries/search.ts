@@ -75,6 +75,17 @@ function tagFilter(tagIds: string[]) {
   );
 }
 
+/**
+ * The tag a tag page is pinned to. A second EXISTS so it is ANDed with the
+ * caller's own tag filter instead of being ORed into it: a page whose title
+ * names one tag must not list bookmarks that lack it.
+ */
+function pinnedTagFilter(tagId: string) {
+  return exists(
+    sql`(select 1 from ${bookmarksTags} where ${bookmarksTags.bookmarkId} = ${bookmarks.id} and ${bookmarksTags.tagId} = ${tagId})`,
+  );
+}
+
 /** Everything strictly after the cursor row, in display order. */
 function afterCursor(cursor: SearchCursor) {
   return or(
@@ -142,6 +153,8 @@ async function tagsByBookmark(
 export async function searchBookmarks(options: {
   query: string;
   tagIds?: string[];
+  /** ANDed with `tagIds`: the tag a tag page is pinned to. */
+  pinTagId?: string;
   /** Signed-in admin: hidden categories and bookmarks are searchable too. */
   includeHidden?: boolean;
   /** Opaque cursor from the previous page; omitted for the first page. */
@@ -150,8 +163,9 @@ export async function searchBookmarks(options: {
 }): Promise<NavSearchResult> {
   const terms = tokenize(options.query);
   const tagIds = options.tagIds ?? [];
+  const pinTagId = options.pinTagId ?? null;
   // An empty query with no tag filter has nothing to narrow down.
-  if (terms.length === 0 && tagIds.length === 0) {
+  if (terms.length === 0 && tagIds.length === 0 && pinTagId === null) {
     return { categories: [], truncated: false, cursor: null };
   }
 
@@ -186,6 +200,7 @@ export async function searchBookmarks(options: {
           and(
             ...termConditions(options.query, bookmarks.searchIndex),
             tagFilter(tagIds),
+            pinTagId === null ? undefined : pinnedTagFilter(pinTagId),
             cursor ? afterCursor(cursor) : undefined,
             isNull(bookmarks.deletedAt),
             isNull(categories.deletedAt),

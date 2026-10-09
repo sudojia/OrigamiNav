@@ -106,6 +106,7 @@ DATABASE_URL="postgresql://user:password@host:5432/postgres"
 - **收录开关**：关闭后前台页面输出 `noindex`，`robots.txt` 全站禁止抓取。
 - **搜索引擎验证**：Google、Bing、百度、搜狗、360、Yandex 的验证码，保存后自动输出对应的 meta 标签。
 - **分类独立页**：`/c/<分类 slug>` 是该分类的完整列表页（不受首页展示数量限制），自带标题、canonical 与结构化数据，并写入 `sitemap.xml`；首页「查看全部」指向它。
+- **标签独立页**：`/t/<标签 slug>` 把同一个标签下的书签按分类归拢，同样自带标题、canonical 与结构化数据。只有收录 ≥5 个公开书签的标签会建页并写入 `sitemap.xml`，不足的仍可访问，但输出 `noindex`（避免与分类页重复的薄内容）。
 - **主动推送**：一键把首页与全部分类页提交给 IndexNow（Bing、Yandex 等）与百度；IndexNow 密钥文件由本站托管在 `/<key>.txt`。
 - **访问统计**：Google Analytics 4、百度统计，以及 Umami / Plausible 等自建统计（自建需在构建环境设置 `ANALYTICS_SCRIPT_ORIGIN` 才会被 CSP 放行）。
 

@@ -53,6 +53,7 @@ import type {
   NavCategory,
   NavData,
   NavSearchResult,
+  NavTagCount,
   SiteSettings,
 } from '@/types/nav';
 
@@ -83,11 +84,14 @@ export function NavClient({
   initialNav,
   settings,
   pinnedSlug,
+  pinnedTag,
 }: {
   initialNav: NavData;
   settings: SiteSettings;
   /** Set by a category page; null on the nav page. */
   pinnedSlug: string | null;
+  /** Set by a tag page, whose payload already holds only that tag's bookmarks. */
+  pinnedTag: NavTagCount | null;
 }) {
   const [nav, setNav] = useState<NavData>(initialNav);
   // Both start empty and are filled from the URL by the mount effect below:
@@ -131,6 +135,9 @@ export function NavClient({
   // Last URL this component synced from, so only a real URL change syncs.
   const lastUrlRef = useRef<string | null>(null);
   const tagKey = activeTags.join(',');
+  // The tag a tag page is pinned to. Sent as its own parameter because `tags`
+  // is an OR group: a page whose title names one tag must AND it, not OR it.
+  const pinId = pinnedTag?.id ?? null;
 
   // Layout effects run before passive effects, so the refs are current by the
   // time the URL sync below reads them.
@@ -206,10 +213,14 @@ export function NavClient({
 
   // ── Freshness: re-syncs only when the tab becomes visible again ───────────
   // The server snapshot stays current through admin edits (revalidateSite),
-  // so there is no mount-time refetch; returning to the tab catches up.
+  // so there is no mount-time refetch; returning to the tab catches up. A tag
+  // page asks for its own slice: the unfiltered payload would widen the page.
+  const tagQuery = pinnedTag ? `?tag=${encodeURIComponent(pinnedTag.slug)}` : '';
+  const navUrl = `/api/nav${tagQuery}`;
+  const meUrl = `/api/me${tagQuery}`;
   const refreshNav = useCallback(async () => {
     try {
-      const response = await fetch('/api/nav', { cache: 'no-store' });
+      const response = await fetch(navUrl, { cache: 'no-store' });
       if (!response.ok) return;
       const fresh = (await response.json()) as NavData;
       // Ignores a malformed payload.
@@ -217,7 +228,7 @@ export function NavClient({
     } catch {
       // Offline or a cold database: keeps the current snapshot.
     }
-  }, []);
+  }, [navUrl]);
 
   useEffect(() => {
     const onVisible = () => {
@@ -242,6 +253,7 @@ export function NavClient({
         const params = new URLSearchParams();
         if (trimmed) params.set('q', trimmed);
         if (tagKey) params.set('tags', tagKey);
+        if (pinId) params.set('pin', pinId);
         const response = await fetch(`/api/nav?${params}`, {
           cache: 'no-store',
           signal: controller.signal,
@@ -267,7 +279,9 @@ export function NavClient({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [query, tagKey, searchAttempt]);
+    // `tagKey` is the user's own filters; the pinned tag rides in `pinId`, and
+    // reading it here would make a tag page search on mount.
+  }, [query, tagKey, pinId, searchAttempt]);
 
   /**
    * Appends the next search page. The cursor and the `matched` total are
@@ -286,6 +300,7 @@ export function NavClient({
       const trimmed = query.trim();
       if (trimmed) params.set('q', trimmed);
       if (tagKey) params.set('tags', tagKey);
+      if (pinId) params.set('pin', pinId);
       params.set('cursor', current.cursor);
 
       const response = await fetch(`/api/nav?${params}`, { cache: 'no-store' });
@@ -321,7 +336,7 @@ export function NavClient({
     } finally {
       setLoadingMore(false);
     }
-  }, [results, loadingMore, query, tagKey]);
+  }, [results, loadingMore, query, tagKey, pinId]);
 
   // ── Header height as a CSS variable ───────────────────────────────────────
   // Measures the sticky header and writes --header-h on resize.
@@ -344,9 +359,10 @@ export function NavClient({
   // The HTML is shared and public-only, so a signed-in admin pulls the full
   // payload (hidden rows included) in this single response instead of waiting
   // for the next tab re-activation. Anonymous callers only get the flag.
+  // The same `?tag=` as the refresh keeps a tag page narrowed.
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/me', { cache: 'no-store' })
+    fetch(meUrl, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (cancelled || data?.isAdmin !== true) return;
@@ -357,7 +373,7 @@ export function NavClient({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [meUrl]);
 
   // Warms the lazily-imported admin dialog once the visitor turns out to be an
   // admin, so the first open is instant without putting it in the shared
@@ -470,13 +486,35 @@ export function NavClient({
     [],
   );
 
+  /**
+   * Leaves a tag page for the full site. Only an explicit "drop this tag" does
+   * this: the chip's X and the back link. Clearing filters stays on the page,
+   * so Escape can never navigate a visitor away.
+   */
+  const leaveTagPage = useCallback(() => {
+    typedSinceSyncRef.current = false;
+    setQuery('');
+    setActiveTags([]);
+    setResults(null);
+    setSearchFailed(false);
+    router.push('/');
+  }, [router]);
+
   const toggleTag = useCallback(
-    (id: string) =>
+    (id: string) => {
+      if (pinnedTag && id === pinnedTag.id) {
+        leaveTagPage();
+        return;
+      }
       applyTags((prev) =>
         prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
-      ),
-    [applyTags],
+      );
+    },
+    [applyTags, pinnedTag, leaveTagPage],
   );
+
+  /** The tag bar's clear button: drops the tag filters, not the search text. */
+  const clearTags = useCallback(() => applyTags([]), [applyTags]);
 
   const clearFilters = useCallback(() => {
     typedSinceSyncRef.current = false;
@@ -667,6 +705,10 @@ export function NavClient({
     [runRetag],
   );
 
+  // A pinned view (category or tag page) owns the page's h1, so the site name
+  // in the header drops to plain text there.
+  const pinnedView = pinnedSlug !== null || pinnedTag !== null;
+
   const hasFilters = query.trim().length > 0 || activeTags.length > 0;
   // Derived, not stored: a request is outstanding until results replace the
   // null placeholder that a filter change resets them to.
@@ -690,13 +732,16 @@ export function NavClient({
       )
     : listedCategories;
 
-  // Sidebar counts follow the current filter, matching what the list renders.
-  const counts = useMemo(() => {
+  // Sidebar counts follow the current filter, matching what the list renders;
+  // the total rides along because the header and the result line both need it.
+  const { counts, listedTotal } = useMemo(() => {
     const map = new Map<string, number>();
+    let total = 0;
     for (const category of shownCategories) {
       map.set(category.id, category.bookmarks.length);
+      total += category.bookmarks.length;
     }
-    return map;
+    return { counts: map, listedTotal: total };
   }, [shownCategories]);
 
   return (
@@ -716,9 +761,9 @@ export function NavClient({
             <div className="flex min-w-0 items-center gap-2.5">
               <BrandMark logoUrl={settings.logoUrl} />
               <div className="min-w-0">
-                {/* A category page's h1 is the category name, so the site name
+                {/* A pinned view's h1 is its own name, so the site name
                     drops to plain text there. */}
-                {pinnedSlug ? (
+                {pinnedView ? (
                   <p className="truncate font-display text-base leading-tight font-semibold">
                     {settings.siteName}
                   </p>
@@ -811,9 +856,11 @@ export function NavClient({
 
           <TagFilterBar
             tags={nav.tags}
-            active={activeTags}
+            // A pinned tag reads as an active filter even though it lives in
+            // the path, and the user's own picks stay visible next to it.
+            active={pinnedTag ? [pinnedTag.id, ...activeTags] : activeTags}
             onToggle={toggleTag}
-            onClear={() => applyTags([])}
+            onClear={clearTags}
           />
         </div>
       </header>
@@ -838,6 +885,20 @@ export function NavClient({
             onSelect={pinnedSlug ? undefined : scrollToCategory}
             counts={counts}
           />
+
+          {/* A tag page always names its tag, including while searching or
+              when nothing matched: it is the document's h1. */}
+          {pinnedTag ? (
+            <header className="mb-8">
+              <h1 className="font-display text-lg font-semibold tracking-tight">
+                {pinnedTag.name}
+              </h1>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {listedTotal.toLocaleString('zh-CN')} 个书签，分布在{' '}
+                {shownCategories.length} 个分类
+              </p>
+            </header>
+          ) : null}
 
           {!nav.available ? (
             <Notice
@@ -897,7 +958,7 @@ export function NavClient({
             />
           ) : (
             <div className="space-y-10">
-              {selectedCategory ? (
+              {selectedCategory || pinnedTag ? (
                 <Link
                   href="/"
                   onClick={() => setSelectedSlug(null)}
@@ -916,10 +977,7 @@ export function NavClient({
                   role="status"
                 >
                   已显示{' '}
-                  {shownCategories
-                    .reduce((sum, category) => sum + category.bookmarks.length, 0)
-                    .toLocaleString('zh-CN')}{' '}
-                  条结果
+                  {listedTotal.toLocaleString('zh-CN')} 条结果
                   {activeTags.length > 0
                     ? `，已按 ${activeTags.length} 个标签筛选`
                     : ''}
@@ -928,13 +986,15 @@ export function NavClient({
               ) : null}
 
               {shownCategories.map((category) => {
-                // Browsing caps the preview (0 = unlimited); the pinned view
-                // and search always list all.
+                // Browsing caps the preview (0 = unlimited); the pinned
+                // view and search always list all. A tag page is already its
+                // tag's full list, so nothing there is capped either.
                 const cap = settings.categoryPreviewCount;
                 const capped =
                   cap > 0 &&
                   !hasFilters &&
                   !selectedCategory &&
+                  pinnedTag === null &&
                   category.bookmarks.length > cap;
                 const visible = capped
                   ? category.bookmarks.slice(0, cap)

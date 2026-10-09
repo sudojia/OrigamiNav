@@ -3,8 +3,14 @@ import {
   categoryDescription,
   siteDescription,
   siteTitle,
+  tagPageDescription,
 } from '@/lib/seo';
-import type { NavCategory, SiteSettings } from '@/types/nav';
+import type {
+  NavBookmark,
+  NavCategory,
+  NavTagCount,
+  SiteSettings,
+} from '@/types/nav';
 
 /** Structured data blocks; native script tags per the Next.js JSON-LD guide. */
 
@@ -45,18 +51,22 @@ export function WebsiteJsonLd({ settings }: { settings: SiteSettings }) {
 /** Item-list cap: the page renders every bookmark, the markup does not have to. */
 const ITEM_LIST_LIMIT = 100;
 
-/** CollectionPage plus its ItemList for a category page. */
-export function CategoryJsonLd({
+/** CollectionPage plus its ItemList; shared by the category and tag pages. */
+function CollectionPageJsonLd({
   settings,
-  category,
+  name,
+  description,
+  path,
+  bookmarks,
 }: {
   settings: SiteSettings;
-  category: NavCategory;
+  name: string;
+  description: string;
+  /** Site-relative path of the page being described. */
+  path: string;
+  bookmarks: NavBookmark[];
 }) {
-  const url = absoluteSiteUrl(
-    settings,
-    `/c/${encodeURIComponent(category.slug)}`,
-  );
+  const url = absoluteSiteUrl(settings, path);
   if (!url) return null;
 
   return (
@@ -64,8 +74,8 @@ export function CategoryJsonLd({
       data={{
         '@context': 'https://schema.org',
         '@type': 'CollectionPage',
-        name: category.name,
-        description: categoryDescription(settings, category),
+        name,
+        description,
         url,
         inLanguage: 'zh-CN',
         isPartOf: {
@@ -75,34 +85,76 @@ export function CategoryJsonLd({
         },
         mainEntity: {
           '@type': 'ItemList',
-          numberOfItems: category.bookmarks.length,
-          itemListElement: category.bookmarks
-            .slice(0, ITEM_LIST_LIMIT)
-            .map((bookmark, index) => ({
+          numberOfItems: bookmarks.length,
+          itemListElement: bookmarks.slice(0, ITEM_LIST_LIMIT).map(
+            (bookmark, index) => ({
               '@type': 'ListItem',
               position: index + 1,
               name: bookmark.title,
               url: bookmark.url,
-            })),
+            }),
+          ),
         },
       }}
     />
   );
 }
 
-/** Home > category trail, matching the back link the page renders. */
-export function BreadcrumbJsonLd({
+/** CollectionPage plus its ItemList for a category page. */
+export function CategoryJsonLd({
   settings,
   category,
 }: {
   settings: SiteSettings;
   category: NavCategory;
 }) {
-  const home = absoluteSiteUrl(settings, '/');
-  const url = absoluteSiteUrl(
-    settings,
-    `/c/${encodeURIComponent(category.slug)}`,
+  return (
+    <CollectionPageJsonLd
+      settings={settings}
+      name={category.name}
+      description={categoryDescription(settings, category)}
+      path={`/c/${encodeURIComponent(category.slug)}`}
+      bookmarks={category.bookmarks}
+    />
   );
+}
+
+/**
+ * CollectionPage for a tag page. A tag spans categories, so its items are the
+ * bookmarks of every section the page renders, in the same order.
+ */
+export function TagPageJsonLd({
+  settings,
+  tag,
+  categories,
+}: {
+  settings: SiteSettings;
+  tag: NavTagCount;
+  categories: NavCategory[];
+}) {
+  return (
+    <CollectionPageJsonLd
+      settings={settings}
+      name={tag.name}
+      description={tagPageDescription(settings, tag)}
+      path={`/t/${encodeURIComponent(tag.slug)}`}
+      bookmarks={categories.flatMap((category) => category.bookmarks)}
+    />
+  );
+}
+
+/** Home > page trail, matching the back link the page renders. */
+function BreadcrumbTrailJsonLd({
+  settings,
+  name,
+  path,
+}: {
+  settings: SiteSettings;
+  name: string;
+  path: string;
+}) {
+  const home = absoluteSiteUrl(settings, '/');
+  const url = absoluteSiteUrl(settings, path);
   if (!home || !url) return null;
 
   return (
@@ -111,10 +163,49 @@ export function BreadcrumbJsonLd({
         '@context': 'https://schema.org',
         '@type': 'BreadcrumbList',
         itemListElement: [
-          { '@type': 'ListItem', position: 1, name: siteTitle(settings), item: home },
-          { '@type': 'ListItem', position: 2, name: category.name, item: url },
+          {
+            '@type': 'ListItem',
+            position: 1,
+            name: siteTitle(settings),
+            item: home,
+          },
+          { '@type': 'ListItem', position: 2, name, item: url },
         ],
       }}
+    />
+  );
+}
+
+/** Home > category trail. */
+export function BreadcrumbJsonLd({
+  settings,
+  category,
+}: {
+  settings: SiteSettings;
+  category: NavCategory;
+}) {
+  return (
+    <BreadcrumbTrailJsonLd
+      settings={settings}
+      name={category.name}
+      path={`/c/${encodeURIComponent(category.slug)}`}
+    />
+  );
+}
+
+/** Home > tag trail. */
+export function TagBreadcrumbJsonLd({
+  settings,
+  tag,
+}: {
+  settings: SiteSettings;
+  tag: NavTagCount;
+}) {
+  return (
+    <BreadcrumbTrailJsonLd
+      settings={settings}
+      name={tag.name}
+      path={`/t/${encodeURIComponent(tag.slug)}`}
     />
   );
 }

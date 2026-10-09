@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { SLUG_MAX_LENGTH } from '@/types/nav';
 import { isValidHttpUrl } from '@/lib/utils';
 
 /** Numeric limits for the Server Action schemas. */
@@ -42,3 +43,6 @@ export function tagNameSchema(message: string): z.ZodString {
     .max(LIMITS.tagName, message)
     .refine((value) => !/[,，、]/.test(value), '标签名称不能包含逗号');
 }
+
+/** Tag slug from a query string, naming the tag page a client refreshes from. */
+export const tagSlugParamSchema = z.string().trim().max(SLUG_MAX_LENGTH);

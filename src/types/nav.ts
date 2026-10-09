@@ -248,6 +248,16 @@ export function isCategoryDeleteMode(value: unknown): value is CategoryDeleteMod
 /** Bounds for the AI tag-count range. */
 export const AI_TAG_COUNT_BOUNDS = { min: 1, max: 10 } as const;
 
+/** Characters a generated slug keeps before a disambiguating suffix is added. */
+export const SLUG_BASE_MAX = 64;
+
+/**
+ * Longest slug any generator produces: the base plus the `-` and six id
+ * characters a taken slug gets appended. Query-string validation is bounded by
+ * this rather than by the base, or stored slugs would fail to parse.
+ */
+export const SLUG_MAX_LENGTH = SLUG_BASE_MAX + 7;
+
 /** Default AI tag-count range. */
 export const DEFAULT_AI_TAG_RANGE = { min: 2, max: 3 } as const;
 

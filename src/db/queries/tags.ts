@@ -22,7 +22,13 @@ import { slugifyUnique } from '@/lib/pinyin';
 import type { TagListQuery, TagSort } from '@/lib/tag-list';
 
 import { db, safeQuery, type Database } from '../client';
-import { bookmarksTags, tags, type Tag } from '../schema';
+import {
+  bookmarks,
+  bookmarksTags,
+  categories,
+  tags,
+  type Tag,
+} from '../schema';
 import { rebuildSearchIndexesFor } from './bookmarks';
 
 /** True when the name is already used by a tag other than `excludeId`. */
@@ -539,4 +545,101 @@ export async function mergeTags(
 
   await rebuildSearchIndexesFor(affected);
   return result;
+}
+
+// ─── Tag pages ───────────────────────────────────────────────────────────────
+
+/**
+ * Visible bookmarks a tag needs before its page is worth indexing. Below this a
+ * tag page carries a handful of links the category pages already hold, which
+ * reads as thin content rather than as another way into the site.
+ */
+export const TAG_PAGE_MIN_BOOKMARKS = 5;
+
+/**
+ * The bookmark-visibility rules, shared by the tag page queries so the sitemap
+ * and a page's own `noindex` count the same links. `getNavData` applies the
+ * same rules in JS, and the two have to stay in step.
+ */
+const VISIBLE_BOOKMARK = sql.join(
+  [
+    sql`${bookmarks.hidden} = false`,
+    sql`${bookmarks.deletedAt} is null`,
+    sql`${categories.hidden} = false`,
+    sql`${categories.deletedAt} is null`,
+  ],
+  // An SQL separator: a plain string becomes a bind parameter, not ` and `.
+  sql` and `,
+);
+
+/** One tag page's identity and reach. */
+export type TagPageTarget = {
+  name: string;
+  slug: string;
+  /** Visible bookmarks, which is what the page itself lists. */
+  count: number;
+};
+
+/**
+ * One tag by slug with its visible count; null when no visible bookmark carries
+ * it. Cheaper than a full nav payload, which is why metadata reads this.
+ */
+export async function getTagPageTarget(
+  slug: string,
+): Promise<TagPageTarget | null> {
+  return safeQuery(
+    'getTagPageTarget',
+    async (database) => {
+      const rows = await database
+        .select({
+          name: tags.name,
+          slug: tags.slug,
+          count: count(),
+        })
+        .from(tags)
+        .innerJoin(bookmarksTags, eq(bookmarksTags.tagId, tags.id))
+        .innerJoin(bookmarks, eq(bookmarks.id, bookmarksTags.bookmarkId))
+        .innerJoin(categories, eq(categories.id, bookmarks.categoryId))
+        .where(and(eq(tags.slug, slug), VISIBLE_BOOKMARK))
+        .groupBy(tags.id, tags.name, tags.slug)
+        .limit(1);
+      return rows[0] ?? null;
+    },
+    null,
+  );
+}
+
+/**
+ * Cap on indexed tag pages. Both consumers are unbounded lists by nature (a
+ * sitemap, a prerender set), and the ordering is by usage, so a cap keeps the
+ * pages that carry the most links.
+ */
+const TAG_PAGE_MAX = 2000;
+
+/**
+ * Tags that get their own page, with the newest edit among the bookmarks they
+ * list; drives the sitemap and the prerender list.
+ */
+export async function listTagPageTargets(): Promise<
+  Array<{ slug: string; updatedAt: string }>
+> {
+  return safeQuery(
+    'listTagPageTargets',
+    (database) =>
+      database
+        .select({
+          slug: tags.slug,
+          updatedAt: sql<string>`max(${bookmarks.updatedAt})`,
+        })
+        .from(tags)
+        .innerJoin(bookmarksTags, eq(bookmarksTags.tagId, tags.id))
+        .innerJoin(bookmarks, eq(bookmarks.id, bookmarksTags.bookmarkId))
+        .innerJoin(categories, eq(categories.id, bookmarks.categoryId))
+        .where(VISIBLE_BOOKMARK)
+        .groupBy(tags.id, tags.slug)
+        .having(sql`count(*) >= ${TAG_PAGE_MIN_BOOKMARKS}`)
+        .orderBy(desc(sql`count(*)`), asc(tags.slug))
+        .limit(TAG_PAGE_MAX),
+    [],
+  );
 }

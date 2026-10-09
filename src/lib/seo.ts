@@ -70,6 +70,17 @@ export function categoryDescription(
     : fallback;
 }
 
+/** Description of one tag page; tags carry no text of their own. */
+export function tagPageDescription(
+  settings: SiteSettings,
+  tag: { name: string; count: number },
+): string {
+  const fallback = `${siteTitle(settings)} 的「${tag.name}」标签，收录 ${tag.count} 个精选书签`;
+  return settings.description
+    ? `${fallback}。${truncate(settings.description, 100)}`
+    : fallback;
+}
+
 /**
  * Canonical, OpenGraph and Twitter block for one page. A nested segment's
  * `openGraph` replaces its parent's outright, so every page that declares one

@@ -25,12 +25,12 @@ import { bookmarks, bookmarksTags, categories, tags } from '../schema';
  * search now runs server-side, so it never reaches the client.
  */
 export async function getNavData(
-  options: { includeHidden?: boolean } = {},
+  options: { includeHidden?: boolean; tagSlug?: string } = {},
 ): Promise<NavData> {
   const includeHidden = options.includeHidden === true;
   const result = await safeQuery<NavData | null>(
     'getNavData',
-    (database) => assemble(database, includeHidden),
+    (database) => assemble(database, includeHidden, options.tagSlug ?? null),
     null,
   );
   return result ?? { ...EMPTY_NAV, generatedAt: new Date().toISOString() };
@@ -39,6 +39,7 @@ export async function getNavData(
 async function assemble(
   database: Database,
   includeHidden: boolean,
+  tagSlug: string | null,
 ): Promise<NavData> {
   const [categoryRows, bookmarkRows, linkRows, tagRows] = await Promise.all([
     database
@@ -97,6 +98,21 @@ async function assemble(
     tagRows.map((t) => [t.id, { id: t.id, name: t.name, slug: t.slug }]),
   );
 
+  // Resolved from the tag rows already read, so a tag page costs no extra
+  // round trip. An unknown slug gets an empty payload: falling back to the
+  // whole site would serve a page the URL does not describe.
+  const tagId = tagSlug
+    ? (tagRows.find((row) => row.slug === tagSlug)?.id ?? null)
+    : null;
+  if (tagSlug !== null && tagId === null) {
+    return {
+      categories: [],
+      tags: [],
+      available: true,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
   const tagsByBookmark = new Map<string, NavTag[]>();
   const linkedTagIds = new Set<string>();
   for (const link of linkRows) {
@@ -114,8 +130,13 @@ async function assemble(
   const tagCounts = new Map<string, number>();
   for (const row of visibleBookmarks) {
     const bookmarkTags = tagsByBookmark.get(row.id) ?? [];
+    // Counts stay site-wide even when the listed bookmarks are narrowed to one
+    // tag, so the tag bar keeps the reference values it shows elsewhere.
     for (const tag of bookmarkTags) {
       tagCounts.set(tag.id, (tagCounts.get(tag.id) ?? 0) + 1);
+    }
+    if (tagId !== null && !bookmarkTags.some((tag) => tag.id === tagId)) {
+      continue;
     }
     const bookmark: NavBookmark = {
       id: row.id,
@@ -133,7 +154,14 @@ async function assemble(
   }
 
   const assembled: NavCategory[] = await Promise.all(
-    visibleCategories.map(async (row) => ({
+    // A tag page drops the categories it holds no bookmark of, so every section
+    // it renders has content.
+    (tagId === null
+      ? visibleCategories
+      : visibleCategories.filter(
+          (row) => (bookmarksByCategory.get(row.id) ?? []).length > 0,
+        )
+    ).map(async (row) => ({
       id: row.id,
       name: row.name,
       slug: row.slug,
