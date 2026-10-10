@@ -29,11 +29,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 
 import type { CategoryWithCount } from '@/db/queries/categories';
 import type { CategoryDeleteMode } from '@/types/nav';
@@ -42,6 +37,7 @@ import { SortableList } from './dnd-list';
 import { SubmitButton, useActionFeedback } from './form-primitives';
 import { ColorPicker, IconPicker, IconPreviewSquare } from './pickers';
 import { PageHeader } from './page-header';
+import { RowAction } from './row-action';
 
 export function CategoryManager({
   categories,
@@ -251,43 +247,6 @@ export function CategoryManager({
         onConfirm={handleDelete}
       />
     </div>
-  );
-}
-
-/** Icon-only row action: a hover hint for sighted users, `label` for screen readers. */
-function RowAction({
-  label,
-  hint,
-  onClick,
-  disabled,
-  destructive,
-  children,
-}: {
-  label: string;
-  hint: string;
-  onClick: () => void;
-  disabled?: boolean;
-  destructive?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={label}
-          disabled={disabled}
-          onClick={onClick}
-          className={
-            destructive ? 'text-destructive hover:text-destructive' : undefined
-          }
-        >
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{hint}</TooltipContent>
-    </Tooltip>
   );
 }
 

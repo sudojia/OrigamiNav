@@ -75,6 +75,7 @@ import type { AdminBookmark, AdminBookmarkGroup } from '@/db/queries/bookmarks';
 import { ConfirmDeleteDialog } from './confirm-delete-dialog';
 import { SortableList } from './dnd-list';
 import { PageHeader } from './page-header';
+import { RowAction } from './row-action';
 
 /** Bookmark manager with list and card views, server-side search and drag-sorting. */
 
@@ -963,24 +964,23 @@ function BookmarkRowImpl({
       <span className="hidden shrink-0 text-xs text-muted-foreground/70 tabular-nums lg:inline">
         {formatDate(bookmark.createdAt)}
       </span>
-      <Button
-        variant="ghost"
-        size="icon"
+      <RowAction
+        label={`编辑 ${bookmark.title}`}
+        hint="编辑书签"
         className="size-7 shrink-0"
-        aria-label={`编辑 ${bookmark.title}`}
         onClick={() => onEdit(bookmark)}
       >
         <Pencil className="size-3.5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-7 shrink-0 text-destructive hover:text-destructive"
-        aria-label={`删除 ${bookmark.title}`}
+      </RowAction>
+      <RowAction
+        label={`删除 ${bookmark.title}`}
+        hint="移入回收站"
+        destructive
+        className="size-7 shrink-0"
         onClick={() => onDelete(bookmark)}
       >
         <Trash2 className="size-3.5" />
-      </Button>
+      </RowAction>
     </div>
   );
 }
@@ -1041,24 +1041,23 @@ function BookmarkGridCardImpl({
           </Badge>
         ) : null}
         <div className="flex shrink-0">
-          <Button
-            variant="ghost"
-            size="icon"
+          <RowAction
+            label={`编辑 ${bookmark.title}`}
+            hint="编辑书签"
             className="size-7"
-            aria-label={`编辑 ${bookmark.title}`}
             onClick={() => onEdit(bookmark)}
           >
             <Pencil className="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7 text-destructive hover:text-destructive"
-            aria-label={`删除 ${bookmark.title}`}
+          </RowAction>
+          <RowAction
+            label={`删除 ${bookmark.title}`}
+            hint="移入回收站"
+            destructive
+            className="size-7"
             onClick={() => onDelete(bookmark)}
           >
             <Trash2 className="size-3.5" />
-          </Button>
+          </RowAction>
         </div>
       </div>
 

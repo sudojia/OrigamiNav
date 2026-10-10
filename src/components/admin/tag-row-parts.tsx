@@ -9,6 +9,8 @@ import { cn } from '@/lib/utils';
 
 import type { TagListRow } from '@/db/queries/tags';
 
+import { RowAction } from './row-action';
+
 /** Row pieces shared by the tag table and the tag cards. */
 
 export type TagRowProps = {
@@ -41,34 +43,32 @@ export function RowActions({
 }) {
   return (
     <div className="flex shrink-0 items-center justify-end gap-0.5 opacity-70 transition-opacity group-hover/row:opacity-100 group-hover/card:opacity-100 focus-within:opacity-100">
-      <Button
-        variant="ghost"
-        size="icon"
+      <RowAction
+        label={`重命名 ${tag.name}`}
+        hint="重命名标签"
+        pressed={renaming}
         className="size-7"
-        aria-label={`重命名 ${tag.name}`}
-        aria-pressed={renaming}
         onClick={onStartRename}
       >
         <Pencil className="size-3.5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
+      </RowAction>
+      <RowAction
+        label={`合并 ${tag.name} 到其他标签`}
+        hint="合并到其他标签"
         className="hidden size-7 md:inline-flex"
-        aria-label={`合并 ${tag.name} 到其他标签`}
         onClick={onMerge}
       >
         <Combine className="size-3.5" />
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-7 text-destructive hover:text-destructive"
-        aria-label={`删除 ${tag.name}`}
+      </RowAction>
+      <RowAction
+        label={`删除 ${tag.name}`}
+        hint="删除标签，不可恢复"
+        destructive
+        className="size-7"
         onClick={onDelete}
       >
         <Trash2 className="size-3.5" />
-      </Button>
+      </RowAction>
     </div>
   );
 }
