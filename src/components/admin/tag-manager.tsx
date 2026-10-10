@@ -48,11 +48,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
   TAG_PAGE_SIZES,
   TAG_SORT_OPTIONS,
   TAG_USAGE_FILTERS,
@@ -72,6 +67,7 @@ import { PageHeader } from './page-header';
 import { TagCard } from './tag-cards';
 import { TagMergeDialog } from './tag-merge-dialog';
 import { TagTable } from './tag-table';
+import { ViewButton } from './view-button';
 
 /**
  * Tag manager. Paging, searching and sorting all run in SQL, so this renders
@@ -653,40 +649,6 @@ function UsageFilter({
         );
       })}
     </div>
-  );
-}
-
-function ViewButton({
-  active,
-  label,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={onClick}
-          aria-label={label}
-          aria-pressed={active}
-          className={cn(
-            'rounded p-1.5 transition-colors',
-            active
-              ? 'bg-accent text-accent-foreground'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          {children}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
-    </Tooltip>
   );
 }
 

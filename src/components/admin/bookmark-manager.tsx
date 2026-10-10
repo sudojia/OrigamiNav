@@ -62,11 +62,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { colorSwatchClass } from '@/lib/category-color';
 import { resolveCategoryIcon } from '@/lib/category-meta';
 import { cn, formatDate, hostnameOf, truncate } from '@/lib/utils';
@@ -76,6 +71,7 @@ import { ConfirmDeleteDialog } from './confirm-delete-dialog';
 import { SortableList } from './dnd-list';
 import { PageHeader } from './page-header';
 import { RowAction } from './row-action';
+import { ViewButton } from './view-button';
 
 /** Bookmark manager with list and card views, server-side search and drag-sorting. */
 
@@ -846,40 +842,6 @@ function ManagerHeader() {
       title="书签管理"
       description="按分类分组管理；拖动手柄调整分类内顺序，编辑时可更换所属分类。"
     />
-  );
-}
-
-function ViewButton({
-  active,
-  label,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={onClick}
-          aria-label={label}
-          aria-pressed={active}
-          className={cn(
-            'rounded p-1.5 transition-colors',
-            active
-              ? 'bg-accent text-accent-foreground'
-              : 'text-muted-foreground hover:text-foreground',
-          )}
-        >
-          {children}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
-    </Tooltip>
   );
 }
 
