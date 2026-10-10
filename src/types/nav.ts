@@ -35,6 +35,12 @@ export type NavCategory = {
   color: string | null;
   /** True only in the admin payload; hidden rows are absent from public data. */
   hidden: boolean;
+  /**
+   * Live bookmarks in the category, present only when the payload was capped
+   * to the preview setting. Above `bookmarks.length` it means the rest of the
+   * category lives on its own page.
+   */
+  bookmarksTotal?: number;
   bookmarks: NavBookmark[];
 };
 

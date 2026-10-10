@@ -400,16 +400,54 @@ export function NavClient({
     [nav.categories, router],
   );
 
+  // ── Which categories to render, and what the rail counts ──────────────────
+  // While filtering, the server result set is authoritative; otherwise the
+  // server-rendered snapshot is.
+  const listedCategories = results ? results.categories : nav.categories;
+  const selectedCategory = useMemo(
+    () =>
+      selectedSlug
+        ? (listedCategories.find((category) => category.slug === selectedSlug) ??
+          null)
+        : null,
+    [listedCategories, selectedSlug],
+  );
+  // A category with nothing to show drops out of the browsing view instead of
+  // rendering as a bare heading. The selected one stays: its own view carries
+  // the explanation.
+  const shownCategories = useMemo(
+    () =>
+      selectedCategory
+        ? listedCategories.filter((c) => c.id === selectedCategory.id)
+        : listedCategories.filter((c) => c.bookmarks.length > 0),
+    [listedCategories, selectedCategory],
+  );
+
+  // Counts read the category's live total, which a preview-capped payload
+  // carries in `bookmarksTotal`, so the rail keeps matching the category page
+  // rather than the shortened list. The sum rides along for the tag header and
+  // the result line.
+  const { counts, listedTotal } = useMemo(() => {
+    const map = new Map<string, number>();
+    let total = 0;
+    for (const category of shownCategories) {
+      const count = category.bookmarksTotal ?? category.bookmarks.length;
+      map.set(category.id, count);
+      total += count;
+    }
+    return { counts: map, listedTotal: total };
+  }, [shownCategories]);
+
   // ── Scroll-spy ─────────────────────────────────────────────────────────────
   // Tracks the active section from scroll position. Measurements are
   // rAF-throttled: a burst of scroll events costs at most one pass per frame.
   const shownCategoryIds = useMemo(
     () =>
-      (results?.categories ?? nav.categories).map((category) => ({
+      shownCategories.map((category) => ({
         id: category.id,
         slug: category.slug,
       })),
-    [results, nav.categories],
+    [shownCategories],
   );
 
   useEffect(() => {
@@ -714,36 +752,6 @@ export function NavClient({
   // null placeholder that a filter change resets them to.
   const searching = hasFilters && results === null;
 
-  // ── Which categories to render, and whether previews are capped ───────────
-  // While filtering, the server result set is authoritative; otherwise the
-  // server-rendered snapshot is.
-  const listedCategories = results ? results.categories : nav.categories;
-  const selectedCategory = useMemo(
-    () =>
-      selectedSlug
-        ? (listedCategories.find((category) => category.slug === selectedSlug) ??
-          null)
-        : null,
-    [listedCategories, selectedSlug],
-  );
-  const shownCategories = selectedCategory
-    ? listedCategories.filter(
-        (category) => category.id === selectedCategory.id,
-      )
-    : listedCategories;
-
-  // Sidebar counts follow the current filter, matching what the list renders;
-  // the total rides along because the header and the result line both need it.
-  const { counts, listedTotal } = useMemo(() => {
-    const map = new Map<string, number>();
-    let total = 0;
-    for (const category of shownCategories) {
-      map.set(category.id, category.bookmarks.length);
-      total += category.bookmarks.length;
-    }
-    return { counts: map, listedTotal: total };
-  }, [shownCategories]);
-
   return (
     <div className="min-h-dvh bg-background">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
@@ -905,7 +913,10 @@ export function NavClient({
               title="数据库未连接"
               body="无法读取书签数据。请检查 DATABASE_URL 是否正确，以及数据库是否可达。"
             />
-          ) : nav.categories.length === 0 && !hasFilters ? (
+          ) : !hasFilters &&
+            listedCategories.every(
+              (category) => category.bookmarks.length === 0,
+            ) ? (
             <Notice
               title="还没有任何书签"
               body="登录后台添加分类和书签。"
@@ -986,19 +997,14 @@ export function NavClient({
               ) : null}
 
               {shownCategories.map((category) => {
-                // Browsing caps the preview (0 = unlimited); the pinned
-                // view and search always list all. A tag page is already its
-                // tag's full list, so nothing there is capped either.
-                const cap = settings.categoryPreviewCount;
-                const capped =
-                  cap > 0 &&
-                  !hasFilters &&
-                  !selectedCategory &&
-                  pinnedTag === null &&
-                  category.bookmarks.length > cap;
-                const visible = capped
-                  ? category.bookmarks.slice(0, cap)
-                  : category.bookmarks;
+                // The server trimmed a browsing payload to the preview cap, so
+                // what is here is already the preview; a larger total means the
+                // rest of the category lives on its own page. Search results
+                // and tag pages are complete lists and carry no total.
+                const bookmarksTotal =
+                  category.bookmarksTotal ?? category.bookmarks.length;
+                const capped = bookmarksTotal > category.bookmarks.length;
+                const visible = category.bookmarks;
                 return (
                   <section
                     key={category.id}
@@ -1065,7 +1071,7 @@ export function NavClient({
                         className="mt-3 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
                       >
                         查看「{category.name}」全部{' '}
-                        {category.bookmarks.length.toLocaleString('zh-CN')} 个
+                        {bookmarksTotal.toLocaleString('zh-CN')} 个
                         <ChevronRight className="size-3.5" aria-hidden />
                       </Link>
                     ) : null}

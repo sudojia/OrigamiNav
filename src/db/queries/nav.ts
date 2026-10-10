@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { hostnameOf } from '@/lib/utils';
 import { categoryIconSvg } from '@/lib/category-icon-svg';
@@ -16,8 +16,20 @@ import {
 import { safeQuery, type Database } from '../client';
 import { bookmarks, bookmarksTags, categories, tags } from '../schema';
 
+export type NavDataOptions = {
+  includeHidden?: boolean;
+  tagSlug?: string;
+  /**
+   * Bookmarks kept per category; 0 or omitted keeps every row. The nav page
+   * passes the preview setting, so the cap bounds the payload itself and not
+   * just the rendered list. Admins are never capped: their payload feeds the
+   * in-place editor and the hidden rows it edits.
+   */
+  previewLimit?: number;
+};
+
 /**
- * Returns the nav payload in three flat queries. Trashed rows are always
+ * Returns the nav payload in a flat set of queries. Trashed rows are always
  * excluded; hidden categories and bookmarks are included only with
  * `includeHidden` (the signed-in admin), so public payloads never contain them.
  *
@@ -25,12 +37,17 @@ import { bookmarks, bookmarksTags, categories, tags } from '../schema';
  * search now runs server-side, so it never reaches the client.
  */
 export async function getNavData(
-  options: { includeHidden?: boolean; tagSlug?: string } = {},
+  options: NavDataOptions = {},
 ): Promise<NavData> {
   const includeHidden = options.includeHidden === true;
   const result = await safeQuery<NavData | null>(
     'getNavData',
-    (database) => assemble(database, includeHidden, options.tagSlug ?? null),
+    (database) =>
+      assemble(database, includeHidden, options.tagSlug ?? null, {
+        previewLimit: includeHidden
+          ? 0
+          : Math.max(0, Math.trunc(options.previewLimit ?? 0)),
+      }),
     null,
   );
   return result ?? { ...EMPTY_NAV, generatedAt: new Date().toISOString() };
@@ -40,8 +57,52 @@ async function assemble(
   database: Database,
   includeHidden: boolean,
   tagSlug: string | null,
+  options: { previewLimit: number },
 ): Promise<NavData> {
-  const [categoryRows, bookmarkRows, linkRows, tagRows] = await Promise.all([
+  const previewLimit = options.previewLimit;
+
+  // Bookmarks ranked within their category in display order (id breaks
+  // sort-order ties, matching the search keyset), so a preview cap drops rows
+  // in the database instead of transferring and discarding them.
+  const rankedBookmarks = database
+    .select({
+      id: bookmarks.id,
+      categoryId: bookmarks.categoryId,
+      title: bookmarks.title,
+      url: bookmarks.url,
+      description: bookmarks.description,
+      iconUrl: bookmarks.iconUrl,
+      hidden: bookmarks.hidden,
+      rank:
+        sql<number>`row_number() over (partition by ${bookmarks.categoryId} order by ${bookmarks.sortOrder}, ${bookmarks.id})`.as(
+          'rank',
+        ),
+    })
+    .from(bookmarks)
+    .where(
+      and(
+        isNull(bookmarks.deletedAt),
+        // Hidden rows never reach a public payload, and dropping them here
+        // keeps the cap counting only rows the visitor could have seen.
+        includeHidden ? undefined : eq(bookmarks.hidden, false),
+      ),
+    )
+    .as('ranked');
+
+  /** Restricts a read over `rankedBookmarks` to the rows the payload keeps. */
+  const withinPreview = () =>
+    previewLimit > 0
+      ? sql`${rankedBookmarks.rank} <= ${previewLimit}`
+      : undefined;
+
+  const [
+    categoryRows,
+    bookmarkRows,
+    linkRows,
+    tagRows,
+    tagCountRows,
+    categoryTotals,
+  ] = await Promise.all([
     database
       .select({
         id: categories.id,
@@ -58,41 +119,77 @@ async function assemble(
       .orderBy(asc(categories.sortOrder), asc(categories.id)),
     database
       .select({
-        id: bookmarks.id,
-        categoryId: bookmarks.categoryId,
-        title: bookmarks.title,
-        url: bookmarks.url,
-        description: bookmarks.description,
-        iconUrl: bookmarks.iconUrl,
-        hidden: bookmarks.hidden,
+        id: rankedBookmarks.id,
+        categoryId: rankedBookmarks.categoryId,
+        title: rankedBookmarks.title,
+        url: rankedBookmarks.url,
+        description: rankedBookmarks.description,
+        iconUrl: rankedBookmarks.iconUrl,
+        hidden: rankedBookmarks.hidden,
       })
-      .from(bookmarks)
-      .where(isNull(bookmarks.deletedAt))
-      // id breaks sort-order ties, so the order matches the search keyset.
-      .orderBy(asc(bookmarks.sortOrder), asc(bookmarks.id)),
+      .from(rankedBookmarks)
+      .where(withinPreview())
+      .orderBy(
+        asc(rankedBookmarks.categoryId),
+        sql`${rankedBookmarks.rank} asc`,
+      ),
+    // Links of the kept bookmarks only, so the cap bounds these rows too.
     database
       .select({
         bookmarkId: bookmarksTags.bookmarkId,
         tagId: bookmarksTags.tagId,
       })
-      .from(bookmarksTags),
+      .from(bookmarksTags)
+      .where(
+        inArray(
+          bookmarksTags.bookmarkId,
+          database
+            .select({ id: rankedBookmarks.id })
+            .from(rankedBookmarks)
+            .where(withinPreview()),
+        ),
+      ),
     database
       .select({ id: tags.id, name: tags.name, slug: tags.slug })
       .from(tags)
       .orderBy(asc(tags.name)),
+    // Tag counts over every visible bookmark rather than over the rows above:
+    // the tag bar keeps the same reference values on every page, capped or not.
+    database
+      .select({ tagId: bookmarksTags.tagId, n: sql<number>`count(*)::int` })
+      .from(bookmarksTags)
+      .innerJoin(bookmarks, eq(bookmarks.id, bookmarksTags.bookmarkId))
+      .innerJoin(categories, eq(categories.id, bookmarks.categoryId))
+      .where(
+        and(
+          isNull(bookmarks.deletedAt),
+          isNull(categories.deletedAt),
+          includeHidden ? undefined : eq(bookmarks.hidden, false),
+          includeHidden ? undefined : eq(categories.hidden, false),
+        ),
+      )
+      .groupBy(bookmarksTags.tagId),
+    // Totals behind the preview cap, so a capped section can still say how many
+    // bookmarks it is holding back. Capping only ever happens for the public
+    // payload, where hidden rows are already excluded above.
+    previewLimit > 0
+      ? database
+          .select({
+            categoryId: bookmarks.categoryId,
+            n: sql<number>`count(*)::int`,
+          })
+          .from(bookmarks)
+          .where(
+            and(isNull(bookmarks.deletedAt), eq(bookmarks.hidden, false)),
+          )
+          .groupBy(bookmarks.categoryId)
+      : Promise.resolve(null),
   ]);
 
   const visibleCategories = includeHidden
     ? categoryRows
     : categoryRows.filter((row) => !row.hidden);
-  // Public tag statistics only count bookmarks under visible categories.
   const visibleCategoryIds = new Set(visibleCategories.map((row) => row.id));
-  const visibleBookmarks = includeHidden
-    ? bookmarkRows
-    : bookmarkRows.filter(
-        (row) => !row.hidden && visibleCategoryIds.has(row.categoryId),
-      );
-  const visibleBookmarkIds = new Set(visibleBookmarks.map((row) => row.id));
 
   const tagById = new Map<string, NavTag>(
     tagRows.map((t) => [t.id, { id: t.id, name: t.name, slug: t.slug }]),
@@ -114,11 +211,7 @@ async function assemble(
   }
 
   const tagsByBookmark = new Map<string, NavTag[]>();
-  const linkedTagIds = new Set<string>();
   for (const link of linkRows) {
-    // Links of hidden bookmarks are skipped on the public payload.
-    if (!visibleBookmarkIds.has(link.bookmarkId)) continue;
-    linkedTagIds.add(link.tagId);
     const tag = tagById.get(link.tagId);
     if (!tag) continue;
     const list = tagsByBookmark.get(link.bookmarkId);
@@ -126,15 +219,14 @@ async function assemble(
     else tagsByBookmark.set(link.bookmarkId, [tag]);
   }
 
+  const tagCounts = new Map<string, number>(
+    tagCountRows.map((row) => [row.tagId, row.n]),
+  );
+
   const bookmarksByCategory = new Map<string, NavBookmark[]>();
-  const tagCounts = new Map<string, number>();
-  for (const row of visibleBookmarks) {
+  for (const row of bookmarkRows) {
+    if (!visibleCategoryIds.has(row.categoryId)) continue;
     const bookmarkTags = tagsByBookmark.get(row.id) ?? [];
-    // Counts stay site-wide even when the listed bookmarks are narrowed to one
-    // tag, so the tag bar keeps the reference values it shows elsewhere.
-    for (const tag of bookmarkTags) {
-      tagCounts.set(tag.id, (tagCounts.get(tag.id) ?? 0) + 1);
-    }
     if (tagId !== null && !bookmarkTags.some((tag) => tag.id === tagId)) {
       continue;
     }
@@ -153,6 +245,10 @@ async function assemble(
     else bookmarksByCategory.set(row.categoryId, [bookmark]);
   }
 
+  const totals = categoryTotals
+    ? new Map(categoryTotals.map((row) => [row.categoryId, row.n]))
+    : null;
+
   const assembled: NavCategory[] = await Promise.all(
     // A tag page drops the categories it holds no bookmark of, so every section
     // it renders has content.
@@ -161,24 +257,28 @@ async function assemble(
       : visibleCategories.filter(
           (row) => (bookmarksByCategory.get(row.id) ?? []).length > 0,
         )
-    ).map(async (row) => ({
-      id: row.id,
-      name: row.name,
-      slug: row.slug,
-      description: row.description,
-      icon: row.icon,
-      // Rendered here rather than on the client: the icon registry is far
-      // larger than the handful of glyphs a nav payload actually needs.
-      iconSvg: await categoryIconSvg(row.icon),
-      color: row.color,
-      hidden: row.hidden,
-      bookmarks: bookmarksByCategory.get(row.id) ?? [],
-    })),
+    ).map(async (row) => {
+      const bookmarks = bookmarksByCategory.get(row.id) ?? [];
+      return {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        description: row.description,
+        icon: row.icon,
+        // Rendered here rather than on the client: the icon registry is far
+        // larger than the handful of glyphs a nav payload actually needs.
+        iconSvg: await categoryIconSvg(row.icon),
+        color: row.color,
+        hidden: row.hidden,
+        ...(totals ? { bookmarksTotal: totals.get(row.id) ?? bookmarks.length } : {}),
+        bookmarks,
+      };
+    }),
   );
 
   const navTags: NavTagCount[] = [...tagById.values()]
     // Only tags attached to at least one visible bookmark.
-    .filter((t) => linkedTagIds.has(t.id))
+    .filter((t) => tagCounts.has(t.id))
     .map((t) => ({ ...t, count: tagCounts.get(t.id) ?? 0 }));
 
   return {

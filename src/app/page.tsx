@@ -49,7 +49,11 @@ export default async function HomePage() {
   // Public payload only: the page stays prerendered and CDN-cacheable. A
   // signed-in admin pulls the hidden rows client-side right after the session
   // check (see NavClient), so no per-user data ever enters the shared cache.
-  const nav = await getNavData();
+  // Capped to the preview setting, so the home page ships exactly the previews
+  // it renders instead of every bookmark of every category.
+  const nav = await getNavData({
+    previewLimit: settings.categoryPreviewCount,
+  });
   // Same reasoning as above: do not cache a render with no bookmarks in it.
   if (!nav.available) unstable_noStore();
 

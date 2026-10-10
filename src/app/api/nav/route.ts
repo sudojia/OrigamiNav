@@ -6,6 +6,7 @@ import {
   searchBookmarks,
   SEARCH_PAGE_SIZE,
 } from '@/db/queries/search';
+import { getSiteSettings } from '@/db/queries/settings';
 import { isAdmin } from '@/lib/session';
 import { tagSlugParamSchema } from '@/lib/validation';
 import type { NavData, NavSearchResult } from '@/types/nav';
@@ -82,9 +83,14 @@ export async function GET(request: Request) {
     return Response.json(result, { headers: CACHE_HEADERS });
   }
 
+  // Mirrors the page render: a browsing snapshot is capped to the preview
+  // setting (admins exempt inside getNavData), while a tag page is by
+  // definition the complete list for its tag.
+  const settings = await getSiteSettings();
   const nav: NavData = await getNavData({
     includeHidden,
     tagSlug: tag || undefined,
+    previewLimit: tag ? 0 : settings.categoryPreviewCount,
   });
   return Response.json(nav, { headers: CACHE_HEADERS });
 }
