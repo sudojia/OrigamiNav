@@ -38,15 +38,18 @@ import {
   type ExtContext,
 } from '@/utils/api';
 import { isConfigured, lastCategoryItem, loadConfig } from '@/utils/config';
+import {
+  CATEGORY_NAME_LIMIT,
+  DESCRIPTION_LIMIT,
+  TITLE_LIMIT,
+} from '@/utils/limits';
+import { publishMenuCategories } from '@/utils/menu';
 import { getActivePageMeta, type PageMeta } from '@/utils/page';
 import { cn } from '@/utils/cn';
 
 import { ManageView } from './ManageView';
 import { Centered, ConnectNotice } from './common';
 
-const TITLE_LIMIT = 100;
-const DESCRIPTION_LIMIT = 300;
-const CATEGORY_NAME_LIMIT = 40;
 /** Sentinel select value for the "new category" item. */
 const NEW_CATEGORY = '__new__';
 
@@ -133,6 +136,15 @@ export function App() {
   useEffect(() => {
     void boot();
   }, [boot]);
+
+  // Same list the popup shows, so the right-click submenu follows the site
+  // (including categories created right here).
+  useEffect(() => {
+    if (!context) return;
+    void publishMenuCategories(
+      context.categories.map(({ id, name }) => ({ id, name })),
+    );
+  }, [context]);
 
   /** Back-to-loading reset for manual retries. */
   function retry() {

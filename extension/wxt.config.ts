@@ -8,7 +8,7 @@ export default defineConfig({
   }),
   manifest: {
     name: 'OrigamiNav',
-    description: '在任意网页一键收藏到 OrigamiNav 导航站。',
-    permissions: ['activeTab', 'scripting', 'storage'],
+    description: '在任意网页一键或右键收藏到 OrigamiNav 导航站。',
+    permissions: ['activeTab', 'contextMenus', 'scripting', 'storage'],
   },
 });

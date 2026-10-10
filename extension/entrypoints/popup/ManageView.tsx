@@ -29,14 +29,12 @@ import {
   type ExtCategoryOption,
 } from '@/utils/api';
 import { isConfigured, loadConfig, type ExtConfig } from '@/utils/config';
+import { TAGS_PER_BOOKMARK, TITLE_LIMIT } from '@/utils/limits';
 
 import { Centered, ConnectNotice } from './common';
 
 /** Typing pause before a search is sent to the site. */
 const SEARCH_DEBOUNCE_MS = 250;
-/** Mirrors the site's per-bookmark limits. */
-const TAGS_PER_BOOKMARK = 10;
-const TITLE_LIMIT = 100;
 
 /** Splits tag input on commas (`,` `，` `、`), the same rule the site uses. */
 function splitTags(raw: string): string[] {
