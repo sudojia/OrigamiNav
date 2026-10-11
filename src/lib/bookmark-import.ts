@@ -95,27 +95,50 @@ export function parseNetscapeBookmarks(html: string): ParsedImportBookmark[] {
   return results;
 }
 
-/** Splits pasted text into unique http(s) URLs; remainder of each line becomes the title. */
-export function parsePastedUrls(
-  text: string,
-): Array<{ url: string; title: string }> {
+export type PastedUrlStats = {
+  items: Array<{ url: string; title: string }>;
+  /** Valid lines dropped because their URL appeared earlier. */
+  duplicates: number;
+  /** Non-empty lines whose first token is not a valid http(s) URL. */
+  invalidLines: number;
+};
+
+/** Parses pasted text into unique http(s) URLs with the line remainder as
+ * title, plus duplicate/invalid counts for the client-side preview. Shared by
+ * the server action and the live textarea stats. */
+export function analyzePastedUrls(text: string): PastedUrlStats {
   const seen = new Set<string>();
-  const results: Array<{ url: string; title: string }> = [];
+  const items: Array<{ url: string; title: string }> = [];
+  let duplicates = 0;
+  let invalidLines = 0;
 
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
     const [head, ...rest] = line.split(/[\s,，]+/);
     const candidate = head ?? '';
-    if (!isValidHttpUrl(candidate)) continue;
+    if (!isValidHttpUrl(candidate)) {
+      invalidLines += 1;
+      continue;
+    }
     const url = candidate.slice(0, 2048);
-    if (seen.has(url)) continue;
+    if (seen.has(url)) {
+      duplicates += 1;
+      continue;
+    }
     seen.add(url);
-    results.push({
+    items.push({
       url,
       title: sanitizeScrapedText(rest.join(' '), 100),
     });
   }
 
-  return results;
+  return { items, duplicates, invalidLines };
+}
+
+/** Splits pasted text into unique http(s) URLs; remainder of each line becomes the title. */
+export function parsePastedUrls(
+  text: string,
+): Array<{ url: string; title: string }> {
+  return analyzePastedUrls(text).items;
 }

@@ -10,7 +10,7 @@ export type FetchMetaResult =
   | { ok: true; title: string; description: string; iconUrl: string | null }
   | { ok: false; message: string };
 
-const TIMEOUT_MS = 8_000;
+const TIMEOUT_MS = 5_000;
 
 /** Scrapes title, description, and icon from one URL. */
 export async function fetchUrlMeta(url: string): Promise<FetchMetaResult> {
@@ -61,7 +61,7 @@ function manualHint(failure: FetchFailure): string {
  */
 export async function fetchUrlMetas(
   urls: string[],
-  { concurrency = 5 }: { concurrency?: number } = {},
+  { concurrency = 8 }: { concurrency?: number } = {},
 ): Promise<FetchMetaResult[]> {
   const results: FetchMetaResult[] = new Array(urls.length);
   let next = 0;

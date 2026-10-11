@@ -16,9 +16,9 @@ import {
 } from '@/db/queries/categories';
 import { mapTagNamesToIds } from '@/db/queries/tags';
 import { replaceAllData, type ExportCategory } from '@/db/queries/transfer';
-import { parsePastedUrls } from '@/lib/bookmark-import';
+import { analyzePastedUrls } from '@/lib/bookmark-import';
 import { revalidateSite } from '@/lib/revalidate';
-import { httpUrlSchema, LIMITS } from '@/lib/validation';
+import { httpUrlSchema, LIMITS, MAX_URL_LINES } from '@/lib/validation';
 import { hostnameOf, isValidHttpUrl } from '@/lib/utils';
 
 import type { ActionState } from '@/types/action';
@@ -26,7 +26,6 @@ import type { ActionState } from '@/types/action';
 /** Import actions: pasted URLs, Netscape HTML, and JSON backup restore. */
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // matches serverActions.bodySizeLimit
-const MAX_URL_LINES = 500;
 const MAX_HTML_BOOKMARKS = 5_000;
 const MAX_JSON_BOOKMARKS = 20_000;
 /** Max URLs that fetch metadata during an import. */
@@ -47,37 +46,68 @@ function idsFor(names: string[], byName: Map<string, string>): string[] {
 
 // ── 1. Bulk URLs ─────────────────────────────────────────────────────────────
 
-export async function importUrlsAction(
-  _prev: ActionState | null,
-  formData: FormData,
-): Promise<ActionState> {
+export type UrlPreviewItem = {
+  url: string;
+  title: string;
+  description: string;
+  iconUrl: string | null;
+  /** True when title/description came from a successful metadata fetch. */
+  fetched: boolean;
+};
+
+export type UrlPreviewResult =
+  | {
+      ok: true;
+      items: UrlPreviewItem[];
+      /** Rows dropped because their URL is already bookmarked. */
+      skippedExisting: number;
+      fetchedCount: number;
+      fetchEnabled: boolean;
+    }
+  | { ok: false; message: string };
+
+const urlPreviewInputSchema = z.object({
+  urlsText: z.string().max(1_000_000),
+  fetchMeta: z.boolean(),
+});
+
+/** Parses pasted URLs, drops already-bookmarked ones, and fetches metadata for
+ * the first batch so the client can preview and edit before committing. */
+export async function previewUrlImportAction(input: {
+  urlsText: string;
+  fetchMeta: boolean;
+}): Promise<UrlPreviewResult> {
   const denied = await guard();
-  if (denied) return denied;
+  if (denied) return { ok: false, message: denied.message };
 
-  const categoryId = String(formData.get('categoryId') ?? '');
-  const raw = String(formData.get('urls') ?? '');
-  const withMeta = formData.get('fetchMeta') === 'on';
+  const parsed = urlPreviewInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, message: '链接内容无效' };
+  }
 
-  if (!categoryId) {
-    return { ok: false, field: 'categoryId', message: '请选择目标分类' };
+  const parsedItems = analyzePastedUrls(parsed.data.urlsText).items;
+  if (parsedItems.length === 0) {
+    return { ok: false, message: '没有解析到有效的 http(s):// 链接，每行一个' };
   }
-  const parsed = parsePastedUrls(raw);
-  if (parsed.length === 0) {
-    return { ok: false, field: 'urls', message: '没有解析到有效的 http(s):// 链接，每行一个' };
-  }
-  if (parsed.length > MAX_URL_LINES) {
-    return { ok: false, field: 'urls', message: `一次最多导入 ${MAX_URL_LINES} 条链接` };
+  if (parsedItems.length > MAX_URL_LINES) {
+    return {
+      ok: false,
+      message: `一次最多导入 ${MAX_URL_LINES} 条链接（当前 ${parsedItems.length} 条）`,
+    };
   }
 
   try {
-    const existing = await getExistingBookmarkUrls(parsed.map((p) => p.url));
-    const fresh = parsed.filter((p) => !existing.has(p.url));
-    const skipped = parsed.length - fresh.length;
+    const existing = await getExistingBookmarkUrls(parsedItems.map((p) => p.url));
+    const fresh = parsedItems.filter((p) => !existing.has(p.url));
+    const skippedExisting = parsedItems.length - fresh.length;
+    if (fresh.length === 0) {
+      return { ok: false, message: `全部 ${parsedItems.length} 条链接都已存在，无需导入` };
+    }
 
     // Fetches metadata for the first MAX_META_FETCH titleless URLs in
-    // parallel; a failed fetch is not a failed import.
+    // parallel; a failed fetch falls back to the hostname title.
     const metaByIndex = new Map<number, FetchMetaResult>();
-    if (withMeta) {
+    if (parsed.data.fetchMeta) {
       const targets = fresh
         .slice(0, MAX_META_FETCH)
         .map((item, index) => (item.title ? null : index))
@@ -90,25 +120,103 @@ export async function importUrlsAction(
       }
     }
 
-    const inputs: BulkBookmarkInput[] = [];
-    for (const [index, item] of fresh.entries()) {
-      let title = item.title;
-      let description = '';
-      let iconUrl: string | null = null;
-
+    const items: UrlPreviewItem[] = fresh.map((item, index) => {
       const meta = metaByIndex.get(index);
       if (meta?.ok) {
-        title = meta.title;
-        description = meta.description;
-        iconUrl = meta.iconUrl;
+        return {
+          url: item.url,
+          title: meta.title,
+          description: meta.description,
+          iconUrl: meta.iconUrl,
+          fetched: true,
+        };
       }
+      return {
+        url: item.url,
+        title: item.title || hostnameOf(item.url) || item.url,
+        description: '',
+        iconUrl: null,
+        fetched: false,
+      };
+    });
 
+    return {
+      ok: true,
+      items,
+      skippedExisting,
+      fetchedCount: items.filter((item) => item.fetched).length,
+      fetchEnabled: parsed.data.fetchMeta,
+    };
+  } catch (error) {
+    return { ok: false, message: `解析失败：${errorMessage(error)}` };
+  }
+}
+
+export type UrlImportResult =
+  | { ok: true; created: number; skipped: number }
+  | { ok: false; message: string };
+
+const urlImportItemSchema = z.object({
+  url: z
+    .string()
+    .trim()
+    .min(1)
+    .max(LIMITS.url)
+    .pipe(httpUrlSchema('URL 无效')),
+  title: z.string().trim().min(1, '标题不能为空').max(LIMITS.title),
+  description: z.string().max(LIMITS.description).default(''),
+  iconUrl: z
+    .string()
+    .max(LIMITS.url)
+    .nullish()
+    .refine((v) => !v || isValidHttpUrl(v), '图标地址无效'),
+});
+
+const urlImportSchema = z.object({
+  categoryId: z.string().min(1),
+  items: z
+    .array(urlImportItemSchema)
+    .min(1, '没有可导入的链接')
+    .max(MAX_URL_LINES),
+});
+
+/** Imports the previewed selection; metadata was already fetched at preview. */
+export async function confirmUrlImportAction(input: {
+  categoryId: string;
+  items: Array<{
+    url: string;
+    title: string;
+    description: string;
+    iconUrl: string | null;
+  }>;
+}): Promise<UrlImportResult> {
+  const denied = await guard();
+  if (denied) return { ok: false, message: denied.message };
+
+  const parsed = urlImportSchema.safeParse(input);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return { ok: false, message: `导入数据无效：${issue?.message ?? '未知错误'}` };
+  }
+  const { categoryId, items } = parsed.data;
+
+  try {
+    const existing = await getExistingBookmarkUrls(items.map((item) => item.url));
+    const inputs: BulkBookmarkInput[] = [];
+    let skipped = 0;
+    for (const item of items) {
+      if (existing.has(item.url)) {
+        skipped += 1;
+        continue;
+      }
+      // De-dupes within the payload.
+      existing.add(item.url);
       inputs.push({
         categoryId,
-        title: title || hostnameOf(item.url) || item.url,
+        title: item.title,
         url: item.url,
-        description,
-        iconUrl,
+        description: item.description,
+        iconUrl: item.iconUrl ?? null,
         tagIds: [],
         tagNames: [],
       });
@@ -116,17 +224,7 @@ export async function importUrlsAction(
 
     const created = await createBookmarksBulk(inputs);
     revalidateSite();
-
-    const notes = [
-      `成功导入 ${created} 条`,
-      skipped > 0 ? `跳过已存在 ${skipped} 条` : '',
-      withMeta && fresh.length > MAX_META_FETCH
-        ? `（仅前 ${MAX_META_FETCH} 条抓取了元信息）`
-        : '',
-    ]
-      .filter(Boolean)
-      .join('，');
-    return { ok: true, message: notes };
+    return { ok: true, created, skipped };
   } catch (error) {
     return { ok: false, message: `导入失败：${errorMessage(error)}` };
   }

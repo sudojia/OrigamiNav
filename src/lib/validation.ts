@@ -3,6 +3,10 @@ import { z } from 'zod';
 import { SLUG_MAX_LENGTH } from '@/types/nav';
 import { isValidHttpUrl } from '@/lib/utils';
 
+/** Max pasted URLs per bulk-URL import; mirrored by the client preview.
+ * Bigger migrations belong to the HTML import path (5000 cap). */
+export const MAX_URL_LINES = 50;
+
 /** Numeric limits for the Server Action schemas. */
 export const LIMITS = {
   title: 100,

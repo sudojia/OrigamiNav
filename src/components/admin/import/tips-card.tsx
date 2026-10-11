@@ -7,7 +7,7 @@ const TIPS = [
   },
   {
     Icon: Gauge,
-    text: '单个文件不超过 2MB；批量链接一次 500 条，书签 HTML 一次 5000 条。',
+    text: '单个文件不超过 2MB；批量链接一次 50 条，书签 HTML 一次 5000 条。',
   },
   {
     Icon: FileScan,
