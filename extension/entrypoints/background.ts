@@ -14,7 +14,6 @@ import {
   MENU_SETUP_ID,
   categoryIdOf,
   menuCategoriesItem,
-  publishMenuCategories,
   refreshMenuCategories,
   renderMenu,
 } from '@/utils/menu';
