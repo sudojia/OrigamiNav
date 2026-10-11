@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { getBookmarkByUrl } from '@/db/queries/bookmarks';
-import { listCategoriesWithCounts } from '@/db/queries/categories';
+import { listCategoryOptions } from '@/db/queries/categories';
 import { getSiteSettings } from '@/db/queries/settings';
 import { extJson, extPreflight, verifyExtToken } from '@/lib/ext-api';
 
@@ -28,19 +28,14 @@ export async function GET(request: Request) {
 
   const [settings, categories, existing] = await Promise.all([
     getSiteSettings(),
-    listCategoriesWithCounts(),
+    listCategoryOptions(),
     getBookmarkByUrl(parsed.data.url),
   ]);
 
   return extJson({
     ok: true,
     siteName: settings.siteName,
-    categories: categories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      icon: category.icon,
-      color: category.color,
-    })),
+    categories,
     existing: existing
       ? {
           id: existing.id,

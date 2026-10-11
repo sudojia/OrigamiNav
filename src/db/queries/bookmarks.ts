@@ -17,30 +17,15 @@ import { termConditions } from '@/lib/search-query';
 import type { NavTag } from '@/types/nav';
 
 import { db, safeQuery, type Database } from '../client';
+import { chunked } from '../chunk';
+import type { AdminBookmark, AdminBookmarkGroup } from '@/types/admin';
 import {
   bookmarks,
   bookmarksTags,
   categories,
   tags,
   type Bookmark,
-  type Category,
 } from '../schema';
-
-export type AdminBookmark = {
-  id: string;
-  categoryId: string;
-  title: string;
-  url: string;
-  description: string;
-  iconUrl: string | null;
-  sortOrder: number;
-  clickCount: number;
-  hidden: boolean;
-  createdAt: string;
-  updatedAt: string;
-  tags: NavTag[];
-};
-export type AdminBookmarkGroup = { category: Category; bookmarks: AdminBookmark[] };
 
 /**
  * Columns the admin manager renders. `search_index` is deliberately absent: it
@@ -226,7 +211,10 @@ export async function updateBookmark(
 ): Promise<void> {
   await db.transaction(async (tx) => {
     const rows = await tx
-      .select()
+      .select({
+        categoryId: bookmarks.categoryId,
+        sortOrder: bookmarks.sortOrder,
+      })
       .from(bookmarks)
       .where(and(eq(bookmarks.id, id), isNull(bookmarks.deletedAt)))
       .limit(1);
@@ -384,7 +372,8 @@ export async function setBookmarksHidden(
   return changed.length;
 }
 
-/** Adds one to a bookmark's click count. */
+/** Adds one to a visible bookmark's click count; no-ops for hidden,
+ * deleted, or unknown ids (the public caller cannot tell the difference). */
 export async function incrementBookmarkClick(id: string): Promise<void> {
   await safeQuery(
     'incrementBookmarkClick',
@@ -392,7 +381,13 @@ export async function incrementBookmarkClick(id: string): Promise<void> {
       await database
         .update(bookmarks)
         .set({ clickCount: sql`${bookmarks.clickCount} + 1` })
-        .where(eq(bookmarks.id, id));
+        .where(
+          and(
+            eq(bookmarks.id, id),
+            eq(bookmarks.hidden, false),
+            isNull(bookmarks.deletedAt),
+          ),
+        );
     },
     undefined,
   );
@@ -446,7 +441,7 @@ export async function getBookmarkByUrl(
 }
 
 /** One bookmark's fields, without the large search index. */
-export type BookmarkCore = {
+ type BookmarkCore = {
   id: string;
   title: string;
   url: string;
@@ -503,8 +498,6 @@ export async function getBookmarkIconTarget(
   );
 }
 
-/** Multi-row insert chunk size; keeps statements under pg's parameter cap. */
-const INSERT_CHUNK = 500;
 /** Rows per UPDATE ... FROM (VALUES ...) statement. */
 const UPDATE_CHUNK = 2000;
 
@@ -568,15 +561,10 @@ export async function createBookmarksBulk(
     }
 
     // Chunked multi-row inserts instead of one roundtrip per row.
-    for (let start = 0; start < rows.length; start += INSERT_CHUNK) {
-      await tx.insert(bookmarks).values(rows.slice(start, start + INSERT_CHUNK));
-    }
-    for (let start = 0; start < links.length; start += INSERT_CHUNK) {
-      await tx
-        .insert(bookmarksTags)
-        .values(links.slice(start, start + INSERT_CHUNK))
-        .onConflictDoNothing();
-    }
+    await chunked(rows, (chunk) => tx.insert(bookmarks).values(chunk));
+    await chunked(links, (chunk) =>
+      tx.insert(bookmarksTags).values(chunk).onConflictDoNothing(),
+    );
     return rows.length;
   });
 }
@@ -657,16 +645,16 @@ export async function rebuildSearchIndexesFor(
           tagNames: namesBy.get(row.id) ?? [],
         })}::text)`,
     );
-    for (let start = 0; start < pairs.length; start += UPDATE_CHUNK) {
-      await tx.execute(sql`
-        UPDATE ${bookmarks} AS b
-        SET search_index = v.idx
-        FROM (VALUES ${sql.join(
-          pairs.slice(start, start + UPDATE_CHUNK),
-          sql`, `,
-        )}) AS v(id, idx)
-        WHERE b.id = v.id
-      `);
-    }
+    await chunked(
+      pairs,
+      (chunk) =>
+        tx.execute(sql`
+          UPDATE ${bookmarks} AS b
+          SET search_index = v.idx
+          FROM (VALUES ${sql.join(chunk, sql`, `)}) AS v(id, idx)
+          WHERE b.id = v.id
+        `),
+      UPDATE_CHUNK,
+    );
   });
 }

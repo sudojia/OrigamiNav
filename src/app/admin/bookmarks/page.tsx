@@ -4,9 +4,12 @@ import { BookmarkManager } from '@/components/admin/bookmark-manager';
 import {
   getAdminBookmarkGroups,
   searchAdminBookmarks,
-  type AdminBookmarkGroup,
 } from '@/db/queries/bookmarks';
-import { listCategoriesWithCounts } from '@/db/queries/categories';
+import {
+  listCategoriesWithCounts,
+  listCategoryOptions,
+} from '@/db/queries/categories';
+import type { AdminBookmarkGroup } from '@/types/admin';
 import { getSiteSettings } from '@/db/queries/settings';
 import { requireAdminPage } from '@/lib/session';
 
@@ -32,10 +35,10 @@ export default async function AdminBookmarksPage({
   const parsed = searchParamsSchema.safeParse(await searchParams);
   const query = parsed.success ? parsed.data.q : '';
 
-  const [groups, settings, categories] = await Promise.all([
+  const [groups, settings, categoryOptions] = await Promise.all([
     query ? null : getAdminBookmarkGroups(),
     getSiteSettings(),
-    listCategoriesWithCounts(),
+    listCategoryOptions(),
   ]);
 
   // The search returns flat rows; group them under their category in display
@@ -51,6 +54,8 @@ export default async function AdminBookmarksPage({
       if (list) list.push(bookmark);
       else byCategory.set(bookmark.categoryId, [bookmark]);
     }
+    // Full rows only needed here: the groups carry the filter's icon/color.
+    const categories = await listCategoriesWithCounts();
     visibleGroups = categories
       .filter((category) => byCategory.has(category.id))
       .map((category) => ({
@@ -62,10 +67,7 @@ export default async function AdminBookmarksPage({
   return (
     <BookmarkManager
       groups={visibleGroups}
-      categories={categories.map((category) => ({
-        id: category.id,
-        name: category.name,
-      }))}
+      categories={categoryOptions}
       query={query}
       truncated={truncated}
       aiEnabled={settings.aiEnabled}

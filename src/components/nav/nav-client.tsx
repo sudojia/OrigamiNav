@@ -26,21 +26,11 @@ import { toast } from 'sonner';
 import { aiTagBookmarkAction } from '@/actions/ai';
 import { deleteBookmarkAction } from '@/actions/bookmark';
 import { BookmarkCard } from '@/components/nav/bookmark-card';
-import { CommandPalette } from '@/components/nav/command-palette';
+import { ConfirmDialog } from '@/components/admin/confirm-dialog';
 import { NavChipBar, NavSidebar } from '@/components/nav/nav-sidebar';
 import { BrandMark } from '@/components/nav/site-mark';
 import { TagFilterBar } from '@/components/nav/tag-filter-bar';
 import { ModeToggle } from '@/components/theme/theme-controls';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { buildHighlightRegex } from '@/lib/filter';
@@ -65,6 +55,15 @@ const BookmarkFormDialog = dynamic(
   () =>
     import('@/components/admin/bookmark-form-dialog').then(
       (mod) => mod.BookmarkFormDialog,
+    ),
+  { ssr: false },
+);
+
+/** Command palette (cmdk + Radix dialog), off the initial public bundle. */
+const CommandPalette = dynamic(
+  () =>
+    import('@/components/nav/command-palette').then(
+      (mod) => mod.CommandPalette,
     ),
   { ssr: false },
 );
@@ -99,6 +98,12 @@ export function NavClient({
   // the server and another on the client.
   const [query, setQuery] = useState('');
   const [activeTags, setActiveTags] = useState<string[]>([]);
+  // New identity only when the inputs change, so the memoized TagFilterBar
+  // doesn't re-measure on every parent render.
+  const activeTagIds = useMemo(
+    () => (pinnedTag ? [pinnedTag.id, ...activeTags] : activeTags),
+    [pinnedTag, activeTags],
+  );
   const [activeId, setActiveId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -866,7 +871,7 @@ export function NavClient({
             tags={nav.tags}
             // A pinned tag reads as an active filter even though it lives in
             // the path, and the user's own picks stay visible next to it.
-            active={pinnedTag ? [pinnedTag.id, ...activeTags] : activeTags}
+            active={activeTagIds}
             onToggle={toggleTag}
             onClear={clearTags}
           />
@@ -1162,61 +1167,36 @@ export function NavClient({
       ) : null}
 
       {/* Retag confirmation; only for bookmarks that already have tags. */}
-      <AlertDialog
+      <ConfirmDialog
         open={retagging !== null}
         onOpenChange={(open) => {
           if (!open && !retagBusy) setRetagging(null);
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>重打「{retagging?.title}」的标签？</AlertDialogTitle>
-            <AlertDialogDescription>
-              会用 AI 重新生成标签，替换现有的 {retagging?.tags.length ?? 0}{' '}
-              个标签。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={retagBusy}>取消</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={retagBusy}
-              onClick={(event) => {
-                event.preventDefault();
-                if (retagging) void runRetag(retagging);
-              }}
-            >
-              {retagBusy ? '重打中…' : '重打标签'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        destructive={false}
+        title={<>重打「{retagging?.title}」的标签？</>}
+        description={
+          <>
+            会用 AI 重新生成标签，替换现有的 {retagging?.tags.length ?? 0} 个标签。
+          </>
+        }
+        confirmLabel={retagBusy ? '重打中…' : '重打标签'}
+        confirmDisabled={retagBusy}
+        cancelDisabled={retagBusy}
+        onConfirm={() => {
+          if (retagging) void runRetag(retagging);
+        }}
+      />
 
       {/* Delete confirmation. */}
-      <AlertDialog
+      <ConfirmDialog
         open={deleting !== null}
-        onOpenChange={(open) => !open && setDeleting(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>删除书签「{deleting?.title}」？</AlertDialogTitle>
-            <AlertDialogDescription>
-              标签关联会一并移除，此操作不可撤销。
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={(event) => {
-                event.preventDefault();
-                void confirmDelete();
-              }}
-            >
-              删除
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={(open) => {
+          if (!open) setDeleting(null);
+        }}
+        title={<>删除书签「{deleting?.title}」？</>}
+        description="标签关联会一并移除，此操作不可撤销。"
+        onConfirm={() => void confirmDelete()}
+      />
     </div>
   );
 }

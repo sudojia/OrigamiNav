@@ -17,7 +17,7 @@ export const CATEGORY_COLOR_OPTIONS = [
   'cyan',
 ] as const;
 
-export type CategoryColorToken = (typeof CATEGORY_COLOR_OPTIONS)[number];
+ type CategoryColorToken = (typeof CATEGORY_COLOR_OPTIONS)[number];
 
 const COLOR_SWATCH_CLASSES: Record<CategoryColorToken, string> = {
   violet: 'bg-violet-500',

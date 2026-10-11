@@ -30,8 +30,9 @@ export type NavCategory = {
   description: string;
   /** Lucide icon name; kept for admin-side editing. */
   icon: string | null;
-  /** Pre-rendered icon markup, so the public page needs no icon registry. */
-  iconSvg: string | null;
+  /** Pre-rendered icon markup, so the public page needs no icon registry.
+   * Filled at the render boundary by `withCategorySvgs`, not by the db layer. */
+  iconSvg?: string | null;
   color: string | null;
   /** True only in the admin payload; hidden rows are absent from public data. */
   hidden: boolean;

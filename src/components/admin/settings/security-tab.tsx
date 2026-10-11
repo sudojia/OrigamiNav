@@ -50,7 +50,7 @@ const SESSION_MAX_DAY_OPTIONS = [1, 7, 14, 30];
 /** Login rate-limit choices, attempts per minute. */
 const LOGIN_RATE_LIMIT_OPTIONS = [5, 10, 20, 50];
 
-export interface SecurityTabProps {
+ interface SecurityTabProps {
   active: boolean;
   deleteMode: CategoryDeleteMode;
   trashRetentionDays: string;

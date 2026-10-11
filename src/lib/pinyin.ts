@@ -11,7 +11,7 @@ import { SLUG_BASE_MAX } from '@/types/nav';
 
 const CJK_CHAR = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
-export function containsCjk(text: string): boolean {
+ function containsCjk(text: string): boolean {
   return CJK_CHAR.test(text);
 }
 
@@ -37,7 +37,7 @@ function segment(text: string): Segment[] {
   return out;
 }
 
-export type PinyinParts = {
+ type PinyinParts = {
   /** Full syllables for CJK characters only, in order. 百度 -> ['bai','du'] */
   syllables: string[];
   /** Initial letters for CJK characters only, in order. 百度 -> ['b','d'] */
@@ -108,7 +108,7 @@ function normalizeSlug(input: string): string {
  * string when nothing survives (e.g. emoji-only names) for the caller to
  * fall back on.
  */
-export function slugify(input: string): string {
+ function slugify(input: string): string {
   const source = containsCjk(input)
     ? (pinyin(input, { toneType: 'none', type: 'string', nonZh: 'consecutive' }) as string)
     : input;

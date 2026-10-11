@@ -14,7 +14,7 @@ import { ICON_TEMPLATE_PLACEHOLDER } from '@/types/nav';
 
 /** Bookmark icon resolution against the database cache. */
 
-export type ResolvedIcon = { mimeType: string; bytes: Uint8Array };
+ type ResolvedIcon = { mimeType: string; bytes: Uint8Array };
 
 /** Per-source cap. */
 const FETCH_TIMEOUT_MS = 3_000;

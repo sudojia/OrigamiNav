@@ -21,16 +21,17 @@ import {
 } from '@/actions/trash';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import type { ActionState } from '@/actions/auth';
+import type { ActionState } from '@/types/action';
 import type {
   TrashCategory,
   TrashCategoryBookmark,
   TrashLooseBookmark,
-} from '@/db/queries/trash';
+} from '@/types/admin';
 import { colorSwatchClass } from '@/lib/category-color';
 import { cn, formatDate, hostnameOf } from '@/lib/utils';
 
-import { ConfirmDeleteDialog } from './confirm-delete-dialog';
+import { ConfirmDialog } from './confirm-dialog';
+import { EmptyState } from './empty-state';
 import { PageHeader } from './page-header';
 
 /** What a pending confirm dialog applies to. */
@@ -135,15 +136,11 @@ export function TrashManager({
       </section>
 
       {total === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-card border border-dashed border-border/80 bg-card/60 px-6 py-14 text-center">
-          <span className="flex size-11 items-center justify-center rounded-xl bg-muted text-muted-foreground">
-            <Trash2 className="size-5" aria-hidden />
-          </span>
-          <p className="text-sm font-medium">回收站是空的</p>
-          <p className="text-xs text-muted-foreground">
-            在分类或书签管理里删除的内容会先出现在这里。
-          </p>
-        </div>
+        <EmptyState
+          Icon={Trash2}
+          title="回收站是空的"
+          hint="在分类或书签管理里删除的内容会先出现在这里。"
+        />
       ) : null}
 
       {categories.map((category) => (
@@ -266,7 +263,7 @@ export function TrashManager({
         </section>
       ) : null}
 
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={target !== null}
         onOpenChange={(open) => !open && setTarget(null)}
         title={dialogCopy.title}

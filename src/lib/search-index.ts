@@ -4,7 +4,7 @@ import { pinyinParts } from './pinyin';
 
 /** Builds the lowercase, space-joined `bookmarks.search_index` used by the server-side bookmark search. */
 
-export type SearchIndexInput = {
+ type SearchIndexInput = {
   title: string;
   url: string;
   description?: string | null;

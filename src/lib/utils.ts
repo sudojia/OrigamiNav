@@ -85,3 +85,22 @@ export function decodeEntities(text: string): string {
     // &amp; last, so "&amp;lt;" decodes to "&lt;".
     .replace(/&amp;/g, '&');
 }
+
+const ATTR_PATTERNS = new Map<string, RegExp>();
+
+function attrPattern(name: string): RegExp {
+  let pattern = ATTR_PATTERNS.get(name);
+  if (!pattern) {
+    pattern = new RegExp(`${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i');
+    ATTR_PATTERNS.set(name, pattern);
+  }
+  return pattern;
+}
+
+/** Attribute value from an HTML tag string, entity-decoded and trimmed;
+ * per-name patterns compile once instead of on every call. */
+export function htmlAttr(tag: string, name: string): string | null {
+  const match = tag.match(attrPattern(name));
+  if (!match) return null;
+  return decodeEntities(match[2] ?? match[3] ?? match[4] ?? '').trim();
+}

@@ -3,6 +3,7 @@ import 'server-only';
 import { eq, sql } from 'drizzle-orm';
 
 import { nowIso } from '@/lib/ids';
+import type { IconCacheStats } from '@/types/admin';
 
 import { db, safeQuery } from '../client';
 import { bookmarkIcons } from '../schema';
@@ -61,15 +62,6 @@ export async function putCachedIcon(input: {
     undefined,
   );
 }
-
-/** Cache footprint for the settings panel. */
-export type IconCacheStats = {
-  entries: number;
-  /** Rows cached as "no icon anywhere", so the total is not read as icons. */
-  misses: number;
-  /** Decoded icon bytes, not the base64 text length. */
-  bytes: number;
-};
 
 export async function getIconCacheStats(): Promise<IconCacheStats> {
   return safeQuery(

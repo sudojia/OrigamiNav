@@ -12,7 +12,8 @@ import {
   Trash2,
   TriangleAlert,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useTimedValue } from '@/lib/use-timed-value';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import {
@@ -35,7 +36,7 @@ const ENGINE_LABELS: Record<string, string> = {
   baidu: '百度',
 };
 
-export interface SeoTabProps {
+ interface SeoTabProps {
   active: boolean;
   siteUrl: string;
   seoIndexing: boolean;
@@ -81,34 +82,19 @@ export function SeoTab({
   onBaiduPushTokenChange,
 }: SeoTabProps) {
   const [indexNowKey, setIndexNowKey] = useState(initialIndexNowKey);
-  const [copied, setCopied] = useState(false);
+  const [copied, flashCopied] = useTimedValue<boolean>(2000);
   const [keyBusy, setKeyBusy] = useState(false);
   const [tokenStored, setTokenStored] = useState(hasBaiduToken);
-  const [confirming, setConfirming] = useState<'key' | 'token' | null>(null);
   const [pushing, setPushing] = useState(false);
   const [pushResult, setPushResult] = useState<PushState | null>(null);
-  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (confirmTimer.current) clearTimeout(confirmTimer.current);
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    },
-    [],
-  );
-
-  function armConfirm(kind: 'key' | 'token') {
-    setConfirming(kind);
-    confirmTimer.current = setTimeout(() => setConfirming(null), 4000);
-  }
+  const [confirming, armConfirm, clearConfirm] =
+    useTimedValue<'key' | 'token'>(4000);
 
   async function handleCopyKey() {
     if (!indexNowKey) return;
     try {
       await navigator.clipboard.writeText(indexNowKey);
-      setCopied(true);
-      copiedTimer.current = setTimeout(() => setCopied(false), 2000);
+      flashCopied(true);
     } catch {
       toast.error('复制失败，请手动选择复制');
     }
@@ -116,7 +102,7 @@ export function SeoTab({
 
   async function handleGenerateKey() {
     setKeyBusy(true);
-    setConfirming(null);
+    clearConfirm();
     try {
       const result = await generateIndexNowKeyAction();
       if (result.ok) {
@@ -132,7 +118,7 @@ export function SeoTab({
 
   async function handleClearToken() {
     setKeyBusy(true);
-    setConfirming(null);
+    clearConfirm();
     try {
       const result = await clearBaiduPushTokenAction();
       if (result.ok) {
@@ -397,7 +383,7 @@ export function SeoTab({
                   variant="ghost"
                   size="sm"
                   disabled={keyBusy}
-                  onClick={() => setConfirming(null)}
+                  onClick={() => clearConfirm()}
                 >
                   取消
                 </Button>
@@ -456,7 +442,7 @@ export function SeoTab({
                   variant="ghost"
                   size="sm"
                   disabled={keyBusy}
-                  onClick={() => setConfirming(null)}
+                  onClick={() => clearConfirm()}
                 >
                   取消
                 </Button>

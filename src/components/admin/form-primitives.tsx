@@ -4,7 +4,7 @@ import { useFormStatus } from 'react-dom';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
-import type { ActionState } from '@/actions/auth';
+import type { ActionState } from '@/types/action';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
@@ -100,6 +100,7 @@ export function SettingsSelect({
   options,
   placeholder,
   triggerClassName,
+  ariaLabel,
 }: {
   id?: string;
   label?: string;
@@ -110,10 +111,12 @@ export function SettingsSelect({
   options: Array<{ value: string; label: ReactNode }>;
   placeholder?: string;
   triggerClassName?: string;
+  /** Accessible name when the row renders its own label element. */
+  ariaLabel?: string;
 }) {
   const control = (
     <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger id={id} className={cn('w-full', triggerClassName)}>
+      <SelectTrigger id={id} aria-label={ariaLabel} className={cn('w-full', triggerClassName)}>
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
       <SelectContent>

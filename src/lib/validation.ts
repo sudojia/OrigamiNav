@@ -44,5 +44,26 @@ export function tagNameSchema(message: string): z.ZodString {
     .refine((value) => !/[,，、]/.test(value), '标签名称不能包含逗号');
 }
 
+/** Bookmark field schemas shared by the admin form action and the extension API. */
+export const bookmarkFields = {
+  title: z
+    .string()
+    .trim()
+    .min(1, '请输入标题')
+    .max(LIMITS.title, `标题最多 ${LIMITS.title} 个字`),
+  url: z
+    .string()
+    .trim()
+    .min(1, '请输入 URL')
+    .max(LIMITS.url, `URL 最长 ${LIMITS.url} 个字符`)
+    .pipe(httpUrlSchema('请输入 http(s):// 开头的完整链接')),
+  categoryId: z.string().min(1, '请选择分类'),
+  description: z
+    .string()
+    .trim()
+    .max(LIMITS.description, `描述最多 ${LIMITS.description} 个字`),
+  iconUrl: optionalHttpUrlSchema(LIMITS.url, '图标地址'),
+} as const;
+
 /** Tag slug from a query string, naming the tag page a client refreshes from. */
 export const tagSlugParamSchema = z.string().trim().max(SLUG_MAX_LENGTH);

@@ -16,12 +16,14 @@ import {
   sql,
 } from 'drizzle-orm';
 
-import { tokenize } from '@/lib/search-query';
+import { likePattern, tokenize } from '@/lib/search-query';
 import { newId, nowIso } from '@/lib/ids';
 import { slugifyUnique } from '@/lib/pinyin';
 import type { TagListQuery, TagSort } from '@/lib/tag-list';
+import type { TagListRow, TagStats } from '@/types/admin';
 
 import { db, safeQuery, type Database } from '../client';
+import { ensureUniqueSlug } from '../slug';
 import {
   bookmarks,
   bookmarksTags,
@@ -54,7 +56,7 @@ export async function tagNameTaken(
 }
 
 /** True when a tag slug is already taken. */
-export async function tagSlugTaken(
+async function tagSlugTaken(
   slug: string,
   excludeId?: string,
 ): Promise<boolean> {
@@ -76,17 +78,11 @@ export async function tagSlugTaken(
 }
 
 /** Finds the first free `base`, `base-2`, `base-3`, … tag slug. */
-export async function ensureUniqueTagSlug(
+function ensureUniqueTagSlug(
   base: string,
   excludeId?: string,
 ): Promise<string> {
-  if (!(await tagSlugTaken(base, excludeId))) return base;
-  for (let n = 2; n < 100; n += 1) {
-    const candidate = `${base}-${n}`;
-    if (!(await tagSlugTaken(candidate, excludeId))) return candidate;
-  }
-  // Fall back to an id-suffixed slug.
-  return `${base}-${newId().slice(-6)}`;
+  return ensureUniqueSlug(base, (slug) => tagSlugTaken(slug, excludeId));
 }
 
 export async function createTag(name: string): Promise<Tag> {
@@ -231,11 +227,15 @@ export async function replaceBookmarkTags(
   await rebuildSearchIndexesFor([bookmarkId]);
 }
 
-/** Maps tag names to ids, creating missing tags. */
-export async function resolveTagIds(names: string[]): Promise<string[]> {
-  const unique = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
-  if (!unique.length) return [];
+/** Trimmed, non-empty, de-duplicated names, order preserved. */
+function uniqueNames(names: string[]): string[] {
+  return [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+}
 
+/** Transaction-resolved name → id map, creating missing tags. */
+async function resolveTagIdMap(
+  unique: string[],
+): Promise<Map<string, string>> {
   return db.transaction(async (tx) => {
     const existing = await tx
       .select({ id: tags.id, name: tags.name })
@@ -243,78 +243,70 @@ export async function resolveTagIds(names: string[]): Promise<string[]> {
       .where(inArray(tags.name, unique));
     const idByName = new Map(existing.map((r) => [r.name, r.id]));
 
-    for (const name of unique) {
-      if (idByName.has(name)) continue;
-      const id = newId();
+    const missing = unique.filter((name) => !idByName.has(name));
+    if (missing.length) {
+      // One multi-row INSERT instead of one roundtrip per name.
+      const rows = missing.map((name) => {
+        const id = newId();
+        return { id, name, slug: slugifyUnique(name, id), createdAt: nowIso() };
+      });
       const inserted = await tx
         .insert(tags)
-        .values({ id, name, slug: slugifyUnique(name, id), createdAt: nowIso() })
+        .values(rows)
         .onConflictDoNothing({ target: tags.slug })
-        .returning({ id: tags.id });
-      const row = inserted[0];
-      if (row) {
-        idByName.set(name, row.id);
-        continue;
+        .returning({ id: tags.id, name: tags.name });
+      for (const row of inserted) idByName.set(row.name, row.id);
+
+      // Slug collision (in-batch or against an existing row): retry each
+      // straggler once with an id-suffixed slug.
+      for (const row of rows) {
+        if (idByName.has(row.name)) continue;
+        const retry = await tx
+          .insert(tags)
+          .values({
+            id: row.id,
+            name: row.name,
+            slug: `${row.slug}-${row.id.slice(-6)}`,
+            createdAt: nowIso(),
+          })
+          .onConflictDoNothing({ target: tags.slug })
+          .returning({ id: tags.id });
+        const retryRow = retry[0];
+        if (retryRow) idByName.set(row.name, retryRow.id);
       }
-      // Slug collision; retry once with an id-suffixed slug.
-      const retry = await tx
-        .insert(tags)
-        .values({
-          id,
-          name,
-          slug: `${slugifyUnique(name, id)}-${id.slice(-6)}`,
-          createdAt: nowIso(),
-        })
-        .onConflictDoNothing({ target: tags.slug })
-        .returning({ id: tags.id });
-      const retryRow = retry[0];
-      if (retryRow) idByName.set(name, retryRow.id);
     }
 
-    return unique
-      .map((name) => idByName.get(name))
-      .filter((id): id is string => id !== undefined);
+    return idByName;
   });
+}
+
+/** Maps tag names to ids, creating missing tags. */
+export async function resolveTagIds(names: string[]): Promise<string[]> {
+  const unique = uniqueNames(names);
+  if (!unique.length) return [];
+
+  const idByName = await resolveTagIdMap(unique);
+  return unique
+    .map((name) => idByName.get(name))
+    .filter((id): id is string => id !== undefined);
 }
 
 /** Name → id map for a batch, creating missing tags. */
 export async function mapTagNamesToIds(names: string[]): Promise<Map<string, string>> {
-  const unique = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+  const unique = uniqueNames(names);
   if (!unique.length) return new Map();
 
-  await resolveTagIds(unique);
-
-  const rows = await db
-    .select({ id: tags.id, name: tags.name })
-    .from(tags)
-    .where(inArray(tags.name, unique));
-  return new Map(rows.map((row) => [row.name, row.id]));
+  return resolveTagIdMap(unique);
 }
 
 // ─── Admin tag list ──────────────────────────────────────────────────────────
 // The tag manager never loads the whole table: it pages, searches and sorts in
 // SQL so the payload and the DOM stay the same size at thousands of tags.
 
-export type TagListRow = {
-  id: string;
-  name: string;
-  slug: string;
-  createdAt: string;
-  count: number;
-};
-
-export type TagListPage = {
+ type TagListPage = {
   items: TagListRow[];
   /** Rows matching the filters, across every page. */
   total: number;
-};
-
-export type TagStats = {
-  total: number;
-  used: number;
-  unused: number;
-  /** Bookmark links over all tags. */
-  refs: number;
 };
 
 const EMPTY_TAG_STATS: TagStats = { total: 0, used: 0, unused: 0, refs: 0 };
@@ -330,15 +322,10 @@ const tagListColumns = {
   count: usageCount,
 };
 
-/** Escapes LIKE metacharacters, so a typed `%` matches a literal percent sign. */
-function likeTerm(term: string): string {
-  return `%${term.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
-}
-
 /** One OR-group per term; every term must match the name or the slug. */
 function searchConditions(query: string) {
   return tokenize(query).map((term) => {
-    const pattern = likeTerm(term);
+    const pattern = likePattern(term);
     return or(ilike(tags.name, pattern), ilike(tags.slug, pattern));
   });
 }
@@ -573,7 +560,7 @@ const VISIBLE_BOOKMARK = sql.join(
 );
 
 /** One tag page's identity and reach. */
-export type TagPageTarget = {
+ type TagPageTarget = {
   name: string;
   slug: string;
   /** Visible bookmarks, which is what the page itself lists. */

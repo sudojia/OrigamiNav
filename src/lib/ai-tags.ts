@@ -4,13 +4,14 @@ import { z } from 'zod';
 import { after } from 'next/server';
 
 import { getAiConfig, type AiConfig } from '@/db/queries/ai';
-import { getTagUsage } from '@/db/queries/nav';
+import { getTopTags } from '@/db/queries/nav';
 import { attachTagsToBookmarks, attachTagsToBookmark, replaceBookmarkTags } from '@/db/queries/tags';
 import {
   chatCompletion,
   COMPLETION_TOKEN_BUDGET,
-  isTransientAiError,
   parseJsonObject,
+  retryTransient,
+  sleep,
 } from '@/lib/ai';
 import { getAiConcurrencyLimit, withAiQueue } from '@/lib/ai-queue';
 import { revalidateSite } from '@/lib/revalidate';
@@ -28,12 +29,8 @@ const tagsSchema = z.object({
 
 /** Most-used existing tags fed to the model. */
 async function getTopTagNames(): Promise<string[]> {
-  const usage = await getTagUsage();
-  return usage
-    .filter((tag) => tag.count > 0)
-    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
-    .slice(0, 60)
-    .map((tag) => tag.name);
+  const usage = await getTopTags(60);
+  return usage.map((tag) => tag.name);
 }
 
 /** One model call that returns tag names only. */
@@ -94,10 +91,6 @@ async function generateTagNames(
 
 // ─── Provider calls ─────────────────────────────────────────────────────────
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /** One model call, retried once when the first answer carries no tags. */
 async function generateNames(
   config: AiConfig,
@@ -118,18 +111,15 @@ const TRANSIENT_RETRY_DELAY_MS = 2_000;
  * dropped tags. The backoff runs while holding the queue slot, which also
  * throttles sibling tasks against the same provider.
  */
-async function generateNamesWithRetry(
+function generateNamesWithRetry(
   config: AiConfig,
   page: { url: string; title?: string; description?: string },
   existingTags: string[],
 ): Promise<string[]> {
-  try {
-    return await generateNames(config, page, existingTags);
-  } catch (error) {
-    if (!isTransientAiError(error)) throw error;
-    await sleep(TRANSIENT_RETRY_DELAY_MS);
-    return generateNames(config, page, existingTags);
-  }
+  return retryTransient(
+    () => generateNames(config, page, existingTags),
+    TRANSIENT_RETRY_DELAY_MS,
+  );
 }
 
 /**

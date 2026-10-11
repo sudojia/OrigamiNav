@@ -1,4 +1,5 @@
 import { getNavData } from '@/db/queries/nav';
+import { withCategorySvgs } from '@/lib/category-icon-svg';
 import { getCurrentAdmin } from '@/lib/session';
 import { tagSlugParamSchema } from '@/lib/validation';
 
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
       ? await getNavData({
           includeHidden: true,
           tagSlug: parsedTag?.data || undefined,
-        })
+        }).then(withCategorySvgs)
       : null;
 
   return Response.json(

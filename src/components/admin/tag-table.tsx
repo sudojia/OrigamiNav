@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import type { TagListQuery, TagSort } from '@/lib/tag-list';
 import { cn, formatDate } from '@/lib/utils';
 
-import type { TagListRow } from '@/db/queries/tags';
+import type { TagListRow } from '@/types/admin';
 import {
   InlineRename,
   RowActions,

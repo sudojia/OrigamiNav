@@ -51,7 +51,7 @@ import {
   isTrashRetentionDays,
 } from '@/types/nav';
 
-import type { ActionState } from './auth';
+import type { ActionState } from '@/types/action';
 
 const AI_MODEL_MAX = 200;
 const AI_KEY_MAX = 512;

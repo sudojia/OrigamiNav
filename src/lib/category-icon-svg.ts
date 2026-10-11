@@ -2,6 +2,8 @@ import 'server-only';
 
 import dynamicIconImports from 'lucide-react/dynamicIconImports';
 
+import type { NavCategory } from '@/types/nav';
+
 /**
  * Category icons as static SVG markup for the nav payload. Rendering happens
  * here instead of on the client so the public page ships no icon components —
@@ -56,7 +58,7 @@ function serialize(node: IconNode): string {
 }
 
 /** Static SVG for a stored icon name; null when the category has no icon. */
-export async function categoryIconSvg(
+async function categoryIconSvg(
   name: string | null | undefined,
 ): Promise<string | null> {
   if (!name) return null;
@@ -72,4 +74,27 @@ export async function categoryIconSvg(
   const markup = serialize((await loader()).__iconNode);
   cache.set(name, markup);
   return markup;
+}
+
+/** Fills `iconSvg` for every category in the payload, one lookup per distinct
+ * icon. Called at the render/HTTP boundary: the db layer returns rows, this
+ * turns them into renderable markup. */
+export async function withCategorySvgs<T extends { categories: NavCategory[] }>(
+  payload: T,
+): Promise<T> {
+  const byIcon = new Map<string | null, string | null>();
+  await Promise.all(
+    [...new Set(payload.categories.map((category) => category.icon))].map(
+      async (icon) => {
+        byIcon.set(icon, await categoryIconSvg(icon));
+      },
+    ),
+  );
+  return {
+    ...payload,
+    categories: payload.categories.map((category) => ({
+      ...category,
+      iconSvg: byIcon.get(category.icon) ?? null,
+    })),
+  };
 }

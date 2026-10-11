@@ -20,7 +20,7 @@ import { revalidateSite } from '@/lib/revalidate';
 import { LIMITS } from '@/lib/validation';
 import { slugifyUnique } from '@/lib/pinyin';
 
-import type { ActionState } from './auth';
+import type { ActionState } from '@/types/action';
 
 const ICON_NAMES = CATEGORY_ICON_OPTIONS.map((option) => option.name);
 

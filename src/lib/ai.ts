@@ -19,9 +19,27 @@ export class AiError extends Error {
 }
 
 /** True for failures worth one retry: transport, timeout, 429 and provider 5xx. */
-export function isTransientAiError(error: unknown): boolean {
+ function isTransientAiError(error: unknown): boolean {
   if (!(error instanceof AiError)) return false;
   return error.status === 0 || error.status === 429 || error.status >= 500;
+}
+
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** One backoff retry for transient provider failures; other errors rethrow. */
+export async function retryTransient<T>(
+  fn: () => Promise<T>,
+  delayMs: number,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (!isTransientAiError(error)) throw error;
+    await sleep(delayMs);
+    return fn();
+  }
 }
 
 const TIMEOUT_MS = 20_000;
@@ -37,7 +55,7 @@ export const COMPLETION_TOKEN_BUDGET = 2000;
 const ANTHROPIC_VERSION = '2023-06-01';
 
 /** AI provider config; protocol selects the wire format. */
-export type AiProviderConfig = {
+ type AiProviderConfig = {
   protocol: AiProtocol;
   baseUrl: string;
   apiKey: string;
@@ -155,9 +173,9 @@ export async function listModels(config: {
   return Array.from(new Set(ids)).sort((a, b) => a.localeCompare(b));
 }
 
-export type ChatMessage = { role: 'system' | 'user'; content: string };
+ type ChatMessage = { role: 'system' | 'user'; content: string };
 
-export type ChatOptions = {
+ type ChatOptions = {
   maxTokens?: number;
   /**
    * Overrides the default request timeout. Reasoning models answer a short

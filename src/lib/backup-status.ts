@@ -1,7 +1,7 @@
 import { MS_PER_DAY, formatDate } from '@/lib/utils';
 
 /** Days a backup may age before the admin is nudged to export a new one. */
-export const BACKUP_REMINDER_DAYS = 7;
+ const BACKUP_REMINDER_DAYS = 7;
 
 export type BackupStatus = {
   lastBackupAt: string | null;

@@ -23,7 +23,7 @@ const SALT_BYTES = 16;
 /** scrypt maxmem; the 32MB default is below what N=32768, r=8 needs. */
 const MAXMEM = 128 * 1024 * 1024;
 
-export type PasswordHash = string;
+ type PasswordHash = string;
 
 export async function hashPassword(password: string): Promise<PasswordHash> {
   const salt = randomBytes(SALT_BYTES);

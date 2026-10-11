@@ -9,7 +9,7 @@ import type { IconService } from '@/types/nav';
  * admin layout) and consumed by <Favicon> itself — no prop drilling.
  */
 
-export type IconSettings = {
+ type IconSettings = {
   service: IconService;
   customTemplate: string | null;
 };

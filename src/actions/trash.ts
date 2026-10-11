@@ -13,7 +13,7 @@ import {
 } from '@/db/queries/trash';
 import { revalidateSite } from '@/lib/revalidate';
 
-import type { ActionState } from './auth';
+import type { ActionState } from '@/types/action';
 
 /** Recycle-bin actions: restores revalidate the public site, purges do not. */
 

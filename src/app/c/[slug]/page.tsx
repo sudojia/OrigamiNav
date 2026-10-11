@@ -85,7 +85,12 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
     return <BootstrapRedirect to="/setup" />;
   }
 
-  const nav = await getNavData();
+  // The pinned category ships in full; every other category is capped to the
+  // preview setting, so the payload stays bounded to what the page renders.
+  const nav = await getNavData({
+    previewLimit: settings.categoryPreviewCount,
+    pinnedCategorySlug: slug,
+  });
   // Database unreachable: keep the page alive with the offline notice rather
   // than 404 a category that still exists. Not cached, so the page recovers as
   // soon as the database answers again.

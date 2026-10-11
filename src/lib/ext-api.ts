@@ -3,6 +3,7 @@ import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 
 import { getSecretValue, SECRET_KEYS } from '@/db/queries/settings';
+import { createFixedWindowLimiter, trustedClientKey } from '@/lib/rate-limit';
 
 /**
  * Bearer-token auth + open CORS for /api/ext/*. The SameSite=Lax session
@@ -10,7 +11,7 @@ import { getSecretValue, SECRET_KEYS } from '@/db/queries/settings';
  * only credential.
  */
 
-export const EXT_CORS_HEADERS: Record<string, string> = {
+ const EXT_CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Authorization, Content-Type',
@@ -48,11 +49,25 @@ export function invalidateExtTokenCache(): void {
   cachedExtToken = null;
 }
 
+/** Lockout after repeated failed token attempts; window slides per key.
+ * Without TRUSTED_PROXY all clients share one key, so a lockout there is
+ * the accepted tradeoff for bounding the guess space. */
+const EXT_TOKEN_FAIL_WINDOW_MS = 5 * 60_000;
+const EXT_TOKEN_FAIL_MAX = 20;
+const extTokenFailLimiter = createFixedWindowLimiter({
+  windowMs: EXT_TOKEN_FAIL_WINDOW_MS,
+  max: EXT_TOKEN_FAIL_MAX,
+  maxKeys: 1_000,
+});
+
 /** Validates `Authorization: Bearer`; false when no token is configured. */
 export async function verifyExtToken(request: Request): Promise<boolean> {
   const header = request.headers.get('authorization') ?? '';
   const token = /^Bearer\s+(\S+)$/i.exec(header)?.[1];
   if (!token) return false;
+
+  const failKey = trustedClientKey(request.headers) ?? 'ip:unknown';
+  if (!extTokenFailLimiter.hasCapacity(failKey)) return false;
 
   const now = Date.now();
   if (!cachedExtToken || cachedExtToken.expiresAt < now) {
@@ -63,5 +78,11 @@ export async function verifyExtToken(request: Request): Promise<boolean> {
   }
   const stored = cachedExtToken.value;
   if (!stored) return false;
-  return secretsMatch(token, stored);
+
+  if (!secretsMatch(token, stored)) {
+    extTokenFailLimiter.consume(failKey);
+    return false;
+  }
+  extTokenFailLimiter.reset(failKey);
+  return true;
 }

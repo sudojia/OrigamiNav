@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { cn, truncate } from '@/lib/utils';
 
-import type { TagListRow } from '@/db/queries/tags';
+import type { TagListRow } from '@/types/admin';
 
 const SEARCH_DEBOUNCE_MS = 180;
 

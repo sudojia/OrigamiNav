@@ -3,7 +3,6 @@
 import {
   ArrowUpDown,
   BrushCleaning,
-  Check,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -60,13 +59,16 @@ import {
 } from '@/lib/tag-list';
 import { cn } from '@/lib/utils';
 
-import type { TagListRow, TagStats } from '@/db/queries/tags';
-import { ConfirmDeleteDialog } from './confirm-delete-dialog';
+import type { TagListRow, TagStats } from '@/types/admin';
+import { ConfirmDialog } from './confirm-dialog';
 import { SubmitButton, useActionFeedback } from './form-primitives';
 import { PageHeader } from './page-header';
 import { TagCard } from './tag-cards';
 import { TagMergeDialog } from './tag-merge-dialog';
 import { TagTable } from './tag-table';
+import { BulkBarShell } from './bulk-bar';
+import { EmptyState } from './empty-state';
+import { createViewPreference } from './view-preference';
 import { ViewButton } from './view-button';
 
 /**
@@ -76,30 +78,12 @@ import { ViewButton } from './view-button';
 
 type ViewMode = 'list' | 'grid';
 
-const VIEW_STORAGE_KEY = 'origaminav.admin.tag-view';
-const VIEW_EVENT = 'origaminav:tag-viewchange';
+const viewPreference = createViewPreference({
+  storageKey: 'origaminav.admin.tag-view',
+  event: 'origaminav:tag-viewchange',
+  alt: 'grid',
+});
 const SEARCH_DEBOUNCE_MS = 250;
-
-function subscribeToViewPreference(onChange: () => void): () => void {
-  window.addEventListener(VIEW_EVENT, onChange);
-  window.addEventListener('storage', onChange);
-  return () => {
-    window.removeEventListener(VIEW_EVENT, onChange);
-    window.removeEventListener('storage', onChange);
-  };
-}
-
-function readViewPreference(): ViewMode {
-  try {
-    return localStorage.getItem(VIEW_STORAGE_KEY) === 'grid' ? 'grid' : 'list';
-  } catch {
-    return 'list';
-  }
-}
-
-function readViewPreferenceOnServer(): ViewMode {
-  return 'list';
-}
 
 export function TagManager({
   items,
@@ -123,9 +107,9 @@ export function TagManager({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [writing, setWriting] = useState(false);
   const view = useSyncExternalStore(
-    subscribeToViewPreference,
-    readViewPreference,
-    readViewPreferenceOnServer,
+    viewPreference.subscribe,
+    viewPreference.read,
+    viewPreference.readOnServer,
   );
 
   // Selection and inline rename belong to one list state; both reset with it.
@@ -162,9 +146,8 @@ export function TagManager({
   const searchRef = useRef<HTMLInputElement>(null);
   const [hasSearchText, setHasSearchText] = useState(query.query !== '');
   const [pendingTerm, setPendingTerm] = useState(query.query);
-  // Last keystroke, last query value this effect handled, and whether the user
-  // has typed since the URL last matched the box.
-  const typedTermRef = useRef(query.query);
+  // Last query value this effect handled, and whether the user has typed since
+  // the URL last matched the box.
   const seenQueryRef = useRef(query.query);
   const typedSinceSyncRef = useRef(false);
 
@@ -174,7 +157,6 @@ export function TagManager({
     // Never rewrite a box the user has typed into since the last sync; a change
     // arriving after the typing settled is an external navigation.
     if (typedSinceSyncRef.current) return;
-    typedTermRef.current = query.query;
     setPendingTerm(query.query);
     setHasSearchText(query.query !== '');
     const input = searchRef.current;
@@ -240,7 +222,6 @@ export function TagManager({
   /** Clears the box and the filter; the DOM value is reset directly. */
   const clearSearch = useCallback(() => {
     if (searchRef.current) searchRef.current.value = '';
-    typedTermRef.current = '';
     typedSinceSyncRef.current = false;
     setPendingTerm('');
     setHasSearchText(false);
@@ -320,12 +301,7 @@ export function TagManager({
   };
 
   const switchView = (next: ViewMode) => {
-    try {
-      localStorage.setItem(VIEW_STORAGE_KEY, next);
-    } catch {
-      // Storage blocked; applies to this tab only.
-    }
-    window.dispatchEvent(new Event(VIEW_EVENT));
+    viewPreference.write(next);
   };
 
   if (stats.total === 0) {
@@ -358,7 +334,6 @@ export function TagManager({
               type="search"
               defaultValue={query.query}
               onChange={(event) => {
-                typedTermRef.current = event.target.value;
                 typedSinceSyncRef.current = true;
                 setPendingTerm(event.target.value);
                 setHasSearchText(event.target.value !== '');
@@ -553,7 +528,7 @@ export function TagManager({
         />
       ) : null}
 
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title={
@@ -572,7 +547,7 @@ export function TagManager({
         onConfirm={handleDelete}
       />
 
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={cleaningUnused}
         onOpenChange={(open) => !open && setCleaningUnused(false)}
         title={`清理 ${stats.unused.toLocaleString('zh-CN')} 个未使用标签？`}
@@ -664,13 +639,8 @@ function BulkBar({
   onClear: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-card border border-primary/35 bg-primary/5 px-3 py-2">
-      <span className="flex items-center gap-2 text-xs font-medium">
-        <Check className="size-4 text-primary" aria-hidden />
-        已选 <span className="tabular-nums">{count}</span> 个标签
-      </span>
-      <div className="ml-auto flex items-center gap-2">
-        <Button variant="outline" size="sm" className="h-8" onClick={onMerge}>
+    <BulkBarShell count={count} noun="个标签" onClear={onClear}>
+      <Button variant="outline" size="sm" className="h-8" onClick={onMerge}>
           <Combine className="size-3.5" aria-hidden />
           合并到…
         </Button>
@@ -683,11 +653,7 @@ function BulkBar({
           <Trash2 className="size-3.5" aria-hidden />
           删除
         </Button>
-        <Button variant="ghost" size="sm" className="h-8" onClick={onClear}>
-          取消选择
-        </Button>
-      </div>
-    </div>
+    </BulkBarShell>
   );
 }
 
@@ -847,30 +813,7 @@ function PageButton({
   );
 }
 
-// ── Empty state + create form ────────────────────────────────────────────────
-
-function EmptyState({
-  Icon,
-  title,
-  hint,
-  action,
-}: {
-  Icon: typeof Tags;
-  title: string;
-  hint: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-2 rounded-card border border-dashed px-6 py-12 text-center">
-      <span className="flex size-10 items-center justify-center rounded-card bg-muted text-muted-foreground">
-        <Icon className="size-5" aria-hidden />
-      </span>
-      <p className="text-sm font-medium">{title}</p>
-      <p className="max-w-sm text-xs text-muted-foreground">{hint}</p>
-      {action ? <div className="mt-1">{action}</div> : null}
-    </div>
-  );
-}
+// ── Create form ──────────────────────────────────────────────────────────────
 
 function CreateTagForm({ onCreated }: { onCreated: () => void }) {
   const [state, formAction] = useActionState(createTagAction, null);

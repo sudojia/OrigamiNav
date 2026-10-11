@@ -19,7 +19,7 @@ import {
   type PushOutcome,
 } from '@/lib/search-engine-push';
 
-import type { ActionState } from './auth';
+import type { ActionState } from '@/types/action';
 
 /** SEO actions: key management plus search-engine URL submission. */
 

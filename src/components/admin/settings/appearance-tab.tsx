@@ -19,7 +19,7 @@ const PREVIEW_OPTIONS = CATEGORY_PREVIEW_COUNTS.map((n) => ({
   label: n === 0 ? '不限制' : `每分类 ${n} 个`,
 }));
 
-export interface AppearanceTabProps {
+ interface AppearanceTabProps {
   active: boolean;
   defaultTheme: SkinId;
   cardColumns: string;

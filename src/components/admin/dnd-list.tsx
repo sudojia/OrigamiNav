@@ -19,25 +19,13 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical } from 'lucide-react';
-import { useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 
 import { cn } from '@/lib/utils';
+import { useHydrated } from '@/lib/use-hydrated';
 
-export type ReorderResult = { ok: boolean; message?: string };
-
-/** Returns true once React has hydrated. */
-function subscribeToNothing(): () => void {
-  return () => {};
-}
-
-function useHydrated(): boolean {
-  return useSyncExternalStore(
-    subscribeToNothing,
-    () => true,
-    () => false,
-  );
-}
+ type ReorderResult = { ok: boolean; message?: string };
 
 /** Generic drag-and-drop sortable list backed by dnd-kit. */
 export function SortableList<T extends { id: string }>({
@@ -107,12 +95,18 @@ export function SortableList<T extends { id: string }>({
     const next = arrayMove(previous, from, to);
     setOrderedIds(next);
 
-    onReorder?.(next).then((result) => {
-      if (result && result.ok === false) {
+    onReorder?.(next)
+      .then((result) => {
+        if (result && result.ok === false) {
+          setOrderedIds(previous);
+          if (result.message) toast.error(result.message);
+        }
+      })
+      .catch(() => {
+        // Server actions reject on transport errors; no result arrives.
         setOrderedIds(previous);
-        if (result.message) toast.error(result.message);
-      }
-    });
+        toast.error('排序保存失败，请重试');
+      });
   }
 
   return (

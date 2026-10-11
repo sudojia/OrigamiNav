@@ -30,7 +30,7 @@ function buildPoolConfig(connectionString: string): pg.PoolConfig {
 }
 
 /** Creates the database handle from a connection string. */
-export function createDb(connectionString: string): Database {
+ function createDb(connectionString: string): Database {
   const pool = new pg.Pool(buildPoolConfig(connectionString));
   // Logs idle-connection errors from the pool.
   pool.on('error', (error) => {
@@ -79,7 +79,7 @@ export const db = new Proxy({} as Database, {
   },
 });
 
-export class DatabaseUnavailableError extends Error {
+class DatabaseUnavailableError extends Error {
   constructor() {
     super(
       'DATABASE_URL is not configured. Copy .env.example to .env and set it.',

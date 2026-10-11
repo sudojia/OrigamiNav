@@ -4,7 +4,7 @@ import type { LookupFunction } from 'node:net';
 import { lookup as dnsLookupPromises } from 'node:dns/promises';
 import type { Response as UndiciResponse } from 'undici';
 
-import { decodeEntities, sanitizeScrapedText } from '@/lib/utils';
+import { decodeEntities, htmlAttr as attr, sanitizeScrapedText } from '@/lib/utils';
 import { LIMITS } from '@/lib/validation';
 
 /** Server-side URL metadata scraping helpers. */
@@ -16,7 +16,7 @@ export class FetchBlockedError extends Error {}
 // ── IP blocklist ─────────────────────────────────────────────────────────────
 
 /** True for private, loopback, link-local, CGNAT, multicast and reserved space. */
-export function isBlockedIp(ip: string): boolean {
+ function isBlockedIp(ip: string): boolean {
   const value = ip.trim().toLowerCase();
 
   // IPv4-mapped IPv6 (::ffff:10.0.0.1); check the embedded v4.
@@ -104,14 +104,6 @@ export function pinnedLookup(
 
 // ── HTML parsing ────────────────────────────────────────────────────────────
 
-function attr(tag: string, name: string): string | null {
-  const match = tag.match(
-    new RegExp(`${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'),
-  );
-  if (!match) return null;
-  return decodeEntities(match[2] ?? match[3] ?? match[4] ?? '').trim();
-}
-
 /** Strips " - 副标题" style suffixes; page titles lead with the main name. */
 function mainTitle(raw: string): string {
   const first = raw.split(/\s+[-–—|｜·]\s+/)[0] ?? '';
@@ -173,7 +165,7 @@ export function parseHtmlMeta(
 }
 
 /** Reads at most `limit` bytes from a response body. */
-export async function readBytesCapped(
+ async function readBytesCapped(
   body: UndiciResponse['body'],
   limit: number,
 ): Promise<Uint8Array> {

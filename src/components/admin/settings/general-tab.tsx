@@ -8,7 +8,7 @@ import { SiteMark } from '@/components/nav/site-mark';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import type { IconCacheStats } from '@/db/queries/icons';
+import type { IconCacheStats } from '@/types/admin';
 import { cn } from '@/lib/utils';
 import {
   ICON_TEMPLATE_PLACEHOLDER,
@@ -57,7 +57,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export interface GeneralTabProps {
+ interface GeneralTabProps {
   active: boolean;
   siteName: string;
   tagline: string;

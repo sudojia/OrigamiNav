@@ -20,9 +20,9 @@ import {
 } from '@/db/queries/tags';
 import { revalidateSite } from '@/lib/revalidate';
 import { queueAiTagGeneration } from '@/lib/ai-tags';
-import { httpUrlSchema, LIMITS, optionalHttpUrlSchema } from '@/lib/validation';
+import { bookmarkFields, LIMITS } from '@/lib/validation';
 
-import type { ActionState } from './auth';
+import type { ActionState } from '@/types/action';
 
 /** Splits tag input on commas (`,` `，` `、`). */
 function parseTagNames(raw: string): string[] {
@@ -37,23 +37,7 @@ function parseTagNames(raw: string): string[] {
 }
 
 const bookmarkSchema = z.object({
-  title: z
-    .string()
-    .trim()
-    .min(1, '请输入标题')
-    .max(LIMITS.title, `标题最多 ${LIMITS.title} 个字`),
-  url: z
-    .string()
-    .trim()
-    .min(1, '请输入 URL')
-    .max(LIMITS.url, `URL 最长 ${LIMITS.url} 个字符`)
-    .pipe(httpUrlSchema('请输入 http(s):// 开头的完整链接')),
-  categoryId: z.string().min(1, '请选择分类'),
-  description: z
-    .string()
-    .trim()
-    .max(LIMITS.description, `描述最多 ${LIMITS.description} 个字`),
-  iconUrl: optionalHttpUrlSchema(LIMITS.url, '图标地址'),
+  ...bookmarkFields,
   tagsInput: z.string().max(500, '标签过多'),
   // Set by the form when the URL was auto-scraped and AI tagging is enabled.
   aiTags: z.string().default('0').transform((value) => value === '1'),

@@ -21,7 +21,7 @@ import { revalidateSite } from '@/lib/revalidate';
 import { httpUrlSchema, LIMITS } from '@/lib/validation';
 import { hostnameOf, isValidHttpUrl } from '@/lib/utils';
 
-import type { ActionState } from './auth';
+import type { ActionState } from '@/types/action';
 
 /** Import actions: pasted URLs, Netscape HTML, and JSON backup restore. */
 

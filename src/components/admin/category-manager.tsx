@@ -30,10 +30,11 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 
-import type { CategoryWithCount } from '@/db/queries/categories';
+import type { CategoryWithCount } from '@/types/admin';
 import type { CategoryDeleteMode } from '@/types/nav';
-import { ConfirmDeleteDialog } from './confirm-delete-dialog';
+import { ConfirmDialog } from './confirm-dialog';
 import { SortableList } from './dnd-list';
+import { EmptyState } from './empty-state';
 import { SubmitButton, useActionFeedback } from './form-primitives';
 import { ColorPicker, IconPicker, IconPreviewSquare } from './pickers';
 import { PageHeader } from './page-header';
@@ -151,9 +152,7 @@ export function CategoryManager({
       </PageHeader>
 
       {categories.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          还没有分类。创建第一个分类后即可添加书签。
-        </div>
+        <EmptyState title="还没有分类。创建第一个分类后即可添加书签。" />
       ) : (
         <SortableList
           items={categories}
@@ -233,7 +232,7 @@ export function CategoryManager({
         />
       ) : null}
 
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title={<>删除分类「{deleting?.name}」？</>}

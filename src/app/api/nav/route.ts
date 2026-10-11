@@ -7,6 +7,7 @@ import {
   SEARCH_PAGE_SIZE,
 } from '@/db/queries/search';
 import { getSiteSettings } from '@/db/queries/settings';
+import { withCategorySvgs } from '@/lib/category-icon-svg';
 import { isAdmin } from '@/lib/session';
 import { tagSlugParamSchema } from '@/lib/validation';
 import type { NavData, NavSearchResult } from '@/types/nav';
@@ -80,7 +81,9 @@ export async function GET(request: Request) {
       cursor: cursor ?? null,
       limit,
     });
-    return Response.json(result, { headers: CACHE_HEADERS });
+    return Response.json(await withCategorySvgs(result), {
+      headers: CACHE_HEADERS,
+    });
   }
 
   // Mirrors the page render: a browsing snapshot is capped to the preview
@@ -92,5 +95,5 @@ export async function GET(request: Request) {
     tagSlug: tag || undefined,
     previewLimit: tag ? 0 : settings.categoryPreviewCount,
   });
-  return Response.json(nav, { headers: CACHE_HEADERS });
+  return Response.json(await withCategorySvgs(nav), { headers: CACHE_HEADERS });
 }

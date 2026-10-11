@@ -3,12 +3,13 @@
 import { useActionState, useEffect, useState } from 'react';
 import Link from 'next/link';
 
-import { loginAction, type ActionState } from '@/actions/auth';
+import { loginAction } from '@/actions/auth';
 import { AuthShell } from '@/components/auth/auth-shell';
 import { PasswordToggle } from '@/components/auth/password-toggle';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import type { ActionState } from '@/types/action';
 
 const INITIAL: ActionState | null = null;
 

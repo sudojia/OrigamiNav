@@ -25,7 +25,7 @@ import {
   removeFaviconAction,
   uploadFaviconAction,
 } from '@/actions/site-assets';
-import type { IconCacheStats } from '@/db/queries/icons';
+import type { IconCacheStats } from '@/types/admin';
 import { cn } from '@/lib/utils';
 import {
   isAiProtocol,
@@ -60,8 +60,6 @@ import { ExtensionRail, ExtensionTab } from './settings/extension-tab';
 import { GeneralTab, IdentityPreview } from './settings/general-tab';
 import { SecurityTab, SecurityRail } from './settings/security-tab';
 import { SeoRail, SeoTab } from './settings/seo-tab';
-
-export type { AiStatus };
 
 type TabId = 'general' | 'appearance' | 'ai' | 'security' | 'extension' | 'seo';
 

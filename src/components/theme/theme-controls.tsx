@@ -2,25 +2,16 @@
 
 import { Moon, Sun } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { useSyncExternalStore } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { useHydrated } from '@/lib/use-hydrated';
 import type { SkinId } from '@/types/nav';
 
 /** Visitor-facing light/dark toggle; dark-only skins render nothing. */
 
-/** "Has React hydrated?" as an external store. */
-function subscribeToNothing(): () => void {
-  return () => {};
-}
-
 export function ModeToggle({ skin }: { skin: SkinId }) {
   const { resolvedTheme, setTheme } = useTheme();
-  const mounted = useSyncExternalStore(
-    subscribeToNothing,
-    () => true,
-    () => false,
-  );
+  const mounted = useHydrated();
 
   // Renders a same-sized placeholder before hydration.
   if (skin === 'geek') {

@@ -15,7 +15,7 @@ import { clampSessionMaxDays } from '@/types/nav';
  * middleware: the edge runtime lacks node:crypto.
  */
 
-export type SessionData = {
+ type SessionData = {
   adminId?: string;
   username?: string;
   /**
@@ -25,7 +25,7 @@ export type SessionData = {
   tokenVersion?: number;
 };
 
-export const SESSION_COOKIE_NAME = 'origaminav_session';
+ const SESSION_COOKIE_NAME = 'origaminav_session';
 
 // Admin-configurable session lifetime (settings 安全 → 登录会话), cached for 60s.
 const globalForSessionMaxDays = globalThis as unknown as {
@@ -58,7 +58,7 @@ const globalForSecret = globalThis as unknown as {
 let ephemeralWarningShown = false;
 
 /** Returns the session cookie key, or null when no trustworthy key is available. */
-export async function resolveSessionSecret(): Promise<string | null> {
+ async function resolveSessionSecret(): Promise<string | null> {
   if (globalForSecret.origaminavSessionSecret) {
     return globalForSecret.origaminavSessionSecret;
   }
@@ -83,7 +83,7 @@ export async function resolveSessionSecret(): Promise<string | null> {
   return null;
 }
 
-export function sessionOptions(
+ function sessionOptions(
   secret: string,
   maxAgeSeconds: number,
 ): SessionOptions {

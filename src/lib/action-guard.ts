@@ -1,6 +1,6 @@
 import { requireAdminAction, UnauthorizedError } from '@/lib/session';
 
-import type { ActionState } from '@/actions/auth';
+import type { ActionState } from '@/types/action';
 
 /**
  * Auth guards for Server Actions: return a login-expired result on

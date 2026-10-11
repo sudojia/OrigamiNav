@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  Check,
   ChevronDown,
   Eye,
   EyeOff,
@@ -37,10 +36,7 @@ import {
   reorderBookmarksAction,
   type BulkBookmarkInput,
 } from '@/actions/bookmark';
-import {
-  BookmarkFormDialog,
-  type BookmarkCategoryOption,
-} from '@/components/admin/bookmark-form-dialog';
+import { BookmarkFormDialog } from '@/components/admin/bookmark-form-dialog';
 import { Favicon } from '@/components/nav/favicon';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -66,11 +62,18 @@ import { colorSwatchClass } from '@/lib/category-color';
 import { resolveCategoryIcon } from '@/lib/category-meta';
 import { cn, formatDate, hostnameOf, truncate } from '@/lib/utils';
 
-import type { AdminBookmark, AdminBookmarkGroup } from '@/db/queries/bookmarks';
-import { ConfirmDeleteDialog } from './confirm-delete-dialog';
+import type {
+  AdminBookmark,
+  AdminBookmarkGroup,
+  BookmarkCategoryOption,
+} from '@/types/admin';
+import { ConfirmDialog } from './confirm-dialog';
 import { SortableList } from './dnd-list';
 import { PageHeader } from './page-header';
 import { RowAction } from './row-action';
+import { BulkBarShell } from './bulk-bar';
+import { EmptyState } from './empty-state';
+import { createViewPreference } from './view-preference';
 import { ViewButton } from './view-button';
 
 /** Bookmark manager with list and card views, server-side search and drag-sorting. */
@@ -82,33 +85,14 @@ type EditingTarget =
 
 type ViewMode = 'list' | 'cards';
 
-const VIEW_STORAGE_KEY = 'origaminav.admin.bookmark-view';
-const VIEW_EVENT = 'origaminav:viewchange';
+const viewPreference = createViewPreference({
+  storageKey: 'origaminav.admin.bookmark-view',
+  event: 'origaminav:viewchange',
+  alt: 'cards',
+});
 const ALL_CATEGORIES = '__all__';
 /** Typing pause before the search term is pushed to the URL. */
 const SEARCH_DEBOUNCE_MS = 250;
-
-/** Subscribes to the stored view preference. */
-function subscribeToViewPreference(onChange: () => void): () => void {
-  window.addEventListener(VIEW_EVENT, onChange);
-  window.addEventListener('storage', onChange);
-  return () => {
-    window.removeEventListener(VIEW_EVENT, onChange);
-    window.removeEventListener('storage', onChange);
-  };
-}
-
-function readViewPreference(): ViewMode {
-  try {
-    return localStorage.getItem(VIEW_STORAGE_KEY) === 'cards' ? 'cards' : 'list';
-  } catch {
-    return 'list';
-  }
-}
-
-function readViewPreferenceOnServer(): ViewMode {
-  return 'list';
-}
 
 export function BookmarkManager({
   groups,
@@ -138,9 +122,9 @@ export function BookmarkManager({
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const view = useSyncExternalStore(
-    subscribeToViewPreference,
-    readViewPreference,
-    readViewPreferenceOnServer,
+    viewPreference.subscribe,
+    viewPreference.read,
+    viewPreference.readOnServer,
   );
   const [pending, startTransition] = useTransition();
 
@@ -156,12 +140,7 @@ export function BookmarkManager({
   }
 
   function switchView(next: ViewMode) {
-    try {
-      localStorage.setItem(VIEW_STORAGE_KEY, next);
-    } catch {
-      // Storage blocked; applies to this tab only.
-    }
-    window.dispatchEvent(new Event(VIEW_EVENT));
+    viewPreference.write(next);
   }
 
   // ── Deep link from the front-end context menu (?edit=<id>) ────────────────
@@ -188,9 +167,8 @@ export function BookmarkManager({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [hasSearchText, setHasSearchText] = useState(query !== '');
   const [pendingTerm, setPendingTerm] = useState(query);
-  // Last keystroke, last query value this effect handled, and whether the user
-  // has typed since the URL last matched the box.
-  const typedTermRef = useRef(query);
+  // Last query value this effect handled, and whether the user has typed since
+  // the URL last matched the box.
   const seenQueryRef = useRef(query);
   const typedSinceSyncRef = useRef(false);
 
@@ -202,7 +180,6 @@ export function BookmarkManager({
     // ("g" + "r" collapsing to "g"). A change arriving after the typing has
     // settled is an external navigation, so the box follows it.
     if (typedSinceSyncRef.current) return;
-    typedTermRef.current = query;
     setPendingTerm(query);
     setHasSearchText(query !== '');
     const input = searchInputRef.current;
@@ -269,7 +246,6 @@ export function BookmarkManager({
   /** Clears the box and the filter; the DOM value is reset directly. */
   const clearSearch = useCallback(() => {
     if (searchInputRef.current) searchInputRef.current.value = '';
-    typedTermRef.current = '';
     typedSinceSyncRef.current = false;
     setPendingTerm('');
     setHasSearchText(false);
@@ -338,9 +314,7 @@ export function BookmarkManager({
     return (
       <div className="space-y-4">
         <ManagerHeader />
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          还没有分类。请先到「分类管理」创建分类，再添加书签。
-        </div>
+        <EmptyState title="还没有分类。请先到「分类管理」创建分类，再添加书签。" />
       </div>
     );
   }
@@ -361,7 +335,6 @@ export function BookmarkManager({
             type="search"
             defaultValue={query}
             onChange={(event) => {
-              typedTermRef.current = event.target.value;
               typedSinceSyncRef.current = true;
               setPendingTerm(event.target.value);
               setHasSearchText(event.target.value !== '');
@@ -480,9 +453,7 @@ export function BookmarkManager({
 
       {/* ── Category sections ────────────────────────────────────────────── */}
       {visibleGroups.length === 0 ? (
-        <div className="rounded-lg border border-dashed p-10 text-center text-sm text-muted-foreground">
-          没有匹配的书签。
-        </div>
+        <EmptyState title="没有匹配的书签。" />
       ) : (
         <div className="space-y-5">
           {visibleGroups.map((group) => {
@@ -541,9 +512,7 @@ export function BookmarkManager({
                 </div>
 
                 {isCollapsed ? null : group.bookmarks.length === 0 ? (
-                  <div className="rounded-lg border border-dashed p-5 text-center text-xs text-muted-foreground">
-                    该分类下还没有书签。
-                  </div>
+                  <EmptyState compact title="该分类下还没有书签。" />
                 ) : view === 'list' ? (
                   <SortableList
                     items={group.bookmarks}
@@ -600,7 +569,7 @@ export function BookmarkManager({
         />
       ) : null}
 
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={deleting !== null}
         onOpenChange={(open) => !open && setDeleting(null)}
         title={<>删除书签「{deleting?.title}」？</>}
@@ -609,7 +578,7 @@ export function BookmarkManager({
         onConfirm={handleDelete}
       />
 
-      <ConfirmDeleteDialog
+      <ConfirmDialog
         open={bulkDeleteOpen}
         onOpenChange={(open) => !open && setBulkDeleteOpen(false)}
         title={<>删除选中的 {selected.size} 条书签？</>}
@@ -665,14 +634,8 @@ function BulkBar({
   const [pickerKey, setPickerKey] = useState(0);
 
   return (
-    <div className="sticky top-14 z-20 flex flex-wrap items-center gap-2 rounded-card border border-primary/35 bg-primary/5 px-3 py-2 backdrop-blur lg:top-0">
-      <span className="flex items-center gap-2 text-xs font-medium">
-        <Check className="size-4 text-primary" aria-hidden />
-        已选 <span className="tabular-nums">{count}</span> 条书签
-      </span>
-
-      <div className="ml-auto flex flex-wrap items-center gap-2">
-        <Select
+    <BulkBarShell count={count} noun="条书签" sticky onClear={onClear}>
+      <Select
           key={pickerKey}
           disabled={busy}
           onValueChange={(value) => {
@@ -740,11 +703,7 @@ function BulkBar({
           删除
         </Button>
 
-        <Button variant="ghost" size="sm" className="h-8" onClick={onClear}>
-          取消选择
-        </Button>
-      </div>
-    </div>
+    </BulkBarShell>
   );
 }
 

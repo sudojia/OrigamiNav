@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 
 import { createBookmarkAction, updateBookmarkAction } from '@/actions/bookmark';
 import { fetchUrlMetaAction } from '@/actions/fetch-meta';
+import type { BookmarkCategoryOption } from '@/types/admin';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -30,7 +31,7 @@ import { isValidHttpUrl } from '@/lib/utils';
 import { SubmitButton, useActionFeedback } from './form-primitives';
 
 /** Bookmark fields the form can edit. */
-export type EditableBookmark = {
+ type EditableBookmark = {
   id: string;
   title: string;
   url: string;
@@ -38,11 +39,6 @@ export type EditableBookmark = {
   iconUrl: string | null;
   hidden: boolean;
   tags: Array<{ id: string; name: string }>;
-};
-
-export type BookmarkCategoryOption = {
-  id: string;
-  name: string;
 };
 
 export function BookmarkFormDialog({

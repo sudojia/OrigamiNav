@@ -1,9 +1,8 @@
 import 'server-only';
 
-import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
 import { hostnameOf } from '@/lib/utils';
-import { categoryIconSvg } from '@/lib/category-icon-svg';
 import {
   EMPTY_NAV,
   type NavBookmark,
@@ -16,9 +15,14 @@ import {
 import { safeQuery, type Database } from '../client';
 import { bookmarks, bookmarksTags, categories, tags } from '../schema';
 
-export type NavDataOptions = {
+ type NavDataOptions = {
   includeHidden?: boolean;
   tagSlug?: string;
+  /**
+   * Category page: this category's rows are never capped; every other
+   * category is, so the payload stays bounded to what the page renders.
+   */
+  pinnedCategorySlug?: string;
   /**
    * Bookmarks kept per category; 0 or omitted keeps every row. The nav page
    * passes the preview setting, so the cap bounds the payload itself and not
@@ -47,6 +51,7 @@ export async function getNavData(
         previewLimit: includeHidden
           ? 0
           : Math.max(0, Math.trunc(options.previewLimit ?? 0)),
+        pinnedCategorySlug: options.pinnedCategorySlug ?? null,
       }),
     null,
   );
@@ -57,13 +62,10 @@ async function assemble(
   database: Database,
   includeHidden: boolean,
   tagSlug: string | null,
-  options: { previewLimit: number },
+  options: { previewLimit: number; pinnedCategorySlug: string | null },
 ): Promise<NavData> {
   const previewLimit = options.previewLimit;
 
-  // Bookmarks ranked within their category in display order (id breaks
-  // sort-order ties, matching the search keyset), so a preview cap drops rows
-  // in the database instead of transferring and discarding them.
   const rankedBookmarks = database
     .select({
       id: bookmarks.id,
@@ -89,10 +91,28 @@ async function assemble(
     )
     .as('ranked');
 
-  /** Restricts a read over `rankedBookmarks` to the rows the payload keeps. */
-  const withinPreview = () =>
+  // The pinned category page keeps its rows uncapped; every other category is
+  // held to the preview limit. Shared by the bookmark read and the links read
+  // so both see exactly the rows the payload keeps.
+  const pinnedCategoryIds = options.pinnedCategorySlug
+    ? database
+        .select({ id: categories.id })
+        .from(categories)
+        .where(
+          and(
+            eq(categories.slug, options.pinnedCategorySlug),
+            isNull(categories.deletedAt),
+          ),
+        )
+    : null;
+  const keptRows = () =>
     previewLimit > 0
-      ? sql`${rankedBookmarks.rank} <= ${previewLimit}`
+      ? or(
+          sql`${rankedBookmarks.rank} <= ${previewLimit}`,
+          pinnedCategoryIds
+            ? inArray(rankedBookmarks.categoryId, pinnedCategoryIds)
+            : undefined,
+        )
       : undefined;
 
   const [
@@ -128,7 +148,7 @@ async function assemble(
         hidden: rankedBookmarks.hidden,
       })
       .from(rankedBookmarks)
-      .where(withinPreview())
+      .where(keptRows())
       .orderBy(
         asc(rankedBookmarks.categoryId),
         sql`${rankedBookmarks.rank} asc`,
@@ -146,7 +166,7 @@ async function assemble(
           database
             .select({ id: rankedBookmarks.id })
             .from(rankedBookmarks)
-            .where(withinPreview()),
+            .where(keptRows()),
         ),
       ),
     database
@@ -249,32 +269,30 @@ async function assemble(
     ? new Map(categoryTotals.map((row) => [row.categoryId, row.n]))
     : null;
 
-  const assembled: NavCategory[] = await Promise.all(
+  const assembled: NavCategory[] = (
     // A tag page drops the categories it holds no bookmark of, so every section
     // it renders has content.
-    (tagId === null
+    tagId === null
       ? visibleCategories
       : visibleCategories.filter(
           (row) => (bookmarksByCategory.get(row.id) ?? []).length > 0,
         )
-    ).map(async (row) => {
-      const bookmarks = bookmarksByCategory.get(row.id) ?? [];
-      return {
-        id: row.id,
-        name: row.name,
-        slug: row.slug,
-        description: row.description,
-        icon: row.icon,
-        // Rendered here rather than on the client: the icon registry is far
-        // larger than the handful of glyphs a nav payload actually needs.
-        iconSvg: await categoryIconSvg(row.icon),
-        color: row.color,
-        hidden: row.hidden,
-        ...(totals ? { bookmarksTotal: totals.get(row.id) ?? bookmarks.length } : {}),
-        bookmarks,
-      };
-    }),
-  );
+  ).map((row) => {
+    const bookmarks = bookmarksByCategory.get(row.id) ?? [];
+    return {
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      description: row.description,
+      icon: row.icon,
+      // iconSvg is filled at the render boundary (withCategorySvgs), keeping
+      // the icon registry out of the query layer.
+      color: row.color,
+      hidden: row.hidden,
+      ...(totals ? { bookmarksTotal: totals.get(row.id) ?? bookmarks.length } : {}),
+      bookmarks,
+    };
+  });
 
   const navTags: NavTagCount[] = [...tagById.values()]
     // Only tags attached to at least one visible bookmark.
@@ -289,14 +307,14 @@ async function assemble(
   };
 }
 
-export type TagUsage = {
+type TagUsage = {
   id: string;
   name: string;
   slug: string;
   count: number;
 };
 
-/** Tag columns with a SQL bookmark count over a LEFT JOIN. */
+/** Tag columns with a SQL bookmark count over the link join. */
 const tagUsageColumns = {
   id: tags.id,
   name: tags.name,
@@ -304,17 +322,18 @@ const tagUsageColumns = {
   count: sql<number>`count(${bookmarksTags.bookmarkId})::int`,
 };
 
-/** Every tag with its bookmark count, name-ordered. */
-export async function getTagUsage(): Promise<TagUsage[]> {
+/** Most-used tags, usage-desc then name; only tags with at least one link. */
+export async function getTopTags(limit: number): Promise<TagUsage[]> {
   return safeQuery(
-    'getTagUsage',
+    'getTopTags',
     async (database) =>
       database
         .select(tagUsageColumns)
         .from(tags)
-        .leftJoin(bookmarksTags, eq(bookmarksTags.tagId, tags.id))
+        .innerJoin(bookmarksTags, eq(bookmarksTags.tagId, tags.id))
         .groupBy(tags.id, tags.name, tags.slug)
-        .orderBy(asc(tags.name)),
+        .orderBy(desc(sql`count(${bookmarksTags.bookmarkId})`), asc(tags.name))
+        .limit(limit),
     [],
   );
 }

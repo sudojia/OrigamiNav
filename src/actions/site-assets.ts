@@ -15,7 +15,7 @@ import {
 } from '@/db/queries/settings';
 import { revalidateSite } from '@/lib/revalidate';
 
-import type { ActionState } from './auth';
+import type { ActionState } from '@/types/action';
 
 /** Favicon upload and removal actions. */
 

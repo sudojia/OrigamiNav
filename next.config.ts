@@ -70,8 +70,10 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
-  // Emits .next/standalone. It does not copy .next/static, public/, or drizzle/.
-  output: 'standalone',
+  // Docker image builds set STANDALONE=true; plain `next start` deployments
+  // build without it, since next start does not serve a standalone output.
+  // The standalone emit does not copy .next/static, public/, or drizzle/.
+  output: process.env.STANDALONE === 'true' ? 'standalone' : undefined,
   // Raises the default 1MB server-action body limit.
   experimental: {
     serverActions: {

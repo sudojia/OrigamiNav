@@ -9,11 +9,12 @@ import {
   useState,
 } from 'react';
 
-import { installAction, type ActionState } from '@/actions/auth';
+import { installAction } from '@/actions/auth';
 import { AuthShell } from '@/components/auth/auth-shell';
 import { PasswordToggle } from '@/components/auth/password-toggle';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import type { ActionState } from '@/types/action';
 import { Label } from '@/components/ui/label';
 import {
   PASSWORD_MIN_LENGTH,

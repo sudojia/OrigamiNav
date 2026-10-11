@@ -4,7 +4,7 @@ import { PROJECT_USER_AGENT } from '@/lib/project-links';
 
 /** Search-engine URL submission: IndexNow plus Baidu's push API. */
 
-export type PushEngine = 'indexnow' | 'baidu';
+ type PushEngine = 'indexnow' | 'baidu';
 
 export type PushOutcome = {
   engine: PushEngine;

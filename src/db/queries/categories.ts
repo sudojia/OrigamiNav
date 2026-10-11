@@ -7,10 +7,11 @@ import { newId, newRow, nowIso } from '@/lib/ids';
 import { slugifyUnique } from '@/lib/pinyin';
 
 import { db, safeQuery } from '../client';
+import { chunked } from '../chunk';
+import { ensureUniqueSlug } from '../slug';
 import { bookmarks, bookmarksTags, categories, type Category } from '../schema';
 import { stashTagIdsSql } from './bookmarks';
-
-export type CategoryWithCount = Category & { bookmarkCount: number };
+import type { CategoryWithCount } from '@/types/admin';
 
 /** Live categories in display order with their live bookmark counts. */
 export async function listCategoriesWithCounts(): Promise<CategoryWithCount[]> {
@@ -43,15 +44,25 @@ export async function listCategoriesWithCounts(): Promise<CategoryWithCount[]> {
   );
 }
 
-/** Id and name of every live category, in display order. */
+/** Picker options for every live category, in display order. */
 export async function listCategoryOptions(): Promise<
-  Array<{ id: string; name: string }>
+  Array<{
+    id: string;
+    name: string;
+    icon: string | null;
+    color: string | null;
+  }>
 > {
   return safeQuery(
     'listCategoryOptions',
     (database) =>
       database
-        .select({ id: categories.id, name: categories.name })
+        .select({
+          id: categories.id,
+          name: categories.name,
+          icon: categories.icon,
+          color: categories.color,
+        })
         .from(categories)
         .where(isNull(categories.deletedAt))
         .orderBy(asc(categories.sortOrder), asc(categories.id)),
@@ -60,9 +71,9 @@ export async function listCategoryOptions(): Promise<
 }
 
 /** A category plus how many of its bookmarks are visible to the public. */
-export type CategoryWithPublicCount = Category & { visibleBookmarks: number };
+ type CategoryWithPublicCount = Category & { visibleBookmarks: number };
 
-export type CategoryDescriptionTarget = {
+ type CategoryDescriptionTarget = {
   id: string;
   name: string;
   description: string;
@@ -231,9 +242,6 @@ export async function getCategoriesByIds(ids: string[]): Promise<Category[]> {
     .where(and(inArray(categories.id, ids), isNull(categories.deletedAt)));
 }
 
-/** Multi-row insert chunk size; keeps statements under pg's parameter cap. */
-const INSERT_CHUNK = 500;
-
 /**
  * Resolves many category names in one batched pass: a single SELECT for the
  * names that already exist, then one multi-row INSERT for the missing ones.
@@ -296,19 +304,17 @@ export async function resolveOrCreateCategories(
     order += 1;
   }
 
-  for (let start = 0; start < rows.length; start += INSERT_CHUNK) {
-    await db
+  await chunked(rows, (chunk) =>
+    db
       .insert(categories)
-      .values(rows.slice(start, start + INSERT_CHUNK))
-      .onConflictDoNothing({ target: categories.slug });
-  }
+      .values(chunk)
+      .onConflictDoNothing({ target: categories.slug }),
+  );
   // Reads back the inserted rows; a slug that lost to an existing category
   // with a different name stays unresolved and falls through to the per-name
   // unique-slug path.
-  for (let start = 0; start < rows.length; start += INSERT_CHUNK) {
-    const slugs = rows
-      .slice(start, start + INSERT_CHUNK)
-      .map((row) => row.slug);
+  await chunked(rows, async (chunk) => {
+    const slugs = chunk.map((row) => row.slug);
     const inserted = await db
       .select()
       .from(categories)
@@ -319,7 +325,7 @@ export async function resolveOrCreateCategories(
         result.set(name, row);
       }
     }
-  }
+  });
 
   // Rare fallback: slug collisions resolve through the per-name path.
   for (const name of missing) {
@@ -390,12 +396,10 @@ export async function getOrCreateCategoryByName(
   });
 }
 
-/**
- * True when a category slug is already taken. Trashed categories still hold
+/** True when a category slug is already taken. Trashed categories still hold
  * their slug, so they count here: handing it to a new category would collide
- * with the one waiting in the recycle bin.
- */
-export async function categorySlugTaken(
+ * with the one waiting in the recycle bin. */
+async function categorySlugTaken(
   slug: string,
   excludeId?: string,
 ): Promise<boolean> {
@@ -421,13 +425,7 @@ export async function ensureUniqueCategorySlug(
   base: string,
   excludeId?: string,
 ): Promise<string> {
-  if (!(await categorySlugTaken(base, excludeId))) return base;
-  for (let n = 2; n < 100; n += 1) {
-    const candidate = `${base}-${n}`;
-    if (!(await categorySlugTaken(candidate, excludeId))) return candidate;
-  }
-  // Fall back to an id-suffixed slug.
-  return `${base}-${newId().slice(-6)}`;
+  return ensureUniqueSlug(base, (slug) => categorySlugTaken(slug, excludeId));
 }
 
 export async function createCategory(input: {
@@ -549,11 +547,16 @@ export async function renumberCategories(orderedIds: string[]): Promise<void> {
     ) {
       throw new Error('分类列表已变化，请刷新后重试');
     }
-    for (const [index, id] of orderedIds.entries()) {
-      await tx
-        .update(categories)
-        .set({ sortOrder: index, updatedAt: nowIso() })
-        .where(eq(categories.id, id));
-    }
+    const stamp = nowIso();
+    // One statement for the whole order instead of one UPDATE per row.
+    const pairs = orderedIds.map(
+      (id, index) => sql`(${id}::text, ${index}::integer)`,
+    );
+    await tx.execute(sql`
+      UPDATE ${categories} AS c
+      SET sort_order = v.ord, updated_at = ${stamp}
+      FROM (VALUES ${sql.join(pairs, sql`, `)}) AS v(id, ord)
+      WHERE c.id = v.id
+    `);
   });
 }

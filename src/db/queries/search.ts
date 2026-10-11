@@ -3,7 +3,6 @@ import 'server-only';
 import { and, asc, desc, eq, exists, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { categoryIconSvg } from '@/lib/category-icon-svg';
 import { termConditions, tokenize } from '@/lib/search-query';
 import { hostnameOf } from '@/lib/utils';
 import type {
@@ -50,7 +49,7 @@ export const cursorSchema = z
     }
   });
 
-export type SearchCursor = z.output<typeof cursorSchema>;
+ type SearchCursor = z.output<typeof cursorSchema>;
 
 /** Encodes the last row of a page into the cursor for the next one. */
 function encodeCursor(row: {
@@ -221,17 +220,6 @@ export async function searchBookmarks(options: {
         rows.map((row) => row.id),
       );
 
-      // Several rows share a category; resolve each icon once.
-      const iconCache = new Map<string | null, Promise<string | null>>();
-      const iconFor = (icon: string | null) => {
-        let pending = iconCache.get(icon);
-        if (!pending) {
-          pending = categoryIconSvg(icon);
-          iconCache.set(icon, pending);
-        }
-        return pending;
-      };
-
       const grouped = new Map<string, NavCategory>();
       for (const row of rows) {
         let category = grouped.get(row.categoryId);
@@ -242,7 +230,7 @@ export async function searchBookmarks(options: {
             slug: row.categorySlug,
             description: row.categoryDescription,
             icon: row.categoryIcon,
-            iconSvg: await iconFor(row.categoryIcon),
+            // iconSvg is filled at the render boundary (withCategorySvgs).
             color: row.categoryColor,
             hidden: row.categoryHidden,
             bookmarks: [],
@@ -282,7 +270,7 @@ export async function searchBookmarks(options: {
 }
 
 /** One row of the extension's bookmark manager. */
-export type ExtBookmarkRow = {
+ type ExtBookmarkRow = {
   id: string;
   title: string;
   url: string;

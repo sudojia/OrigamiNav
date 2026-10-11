@@ -6,7 +6,7 @@ import { safeQuery } from '../client';
 import { bookmarks, categories, tags } from '../schema';
 
 /** Row counts for the admin overview; trashed rows are not counted. */
-export type AdminCounts = {
+ type AdminCounts = {
   categories: number;
   bookmarks: number;
   tags: number;

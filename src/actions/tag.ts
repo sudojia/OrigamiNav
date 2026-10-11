@@ -11,13 +11,13 @@ import {
   renameTag,
   searchTagOptions,
   tagNameTaken,
-  type TagListRow,
 } from '@/db/queries/tags';
 import { revalidateSite } from '@/lib/revalidate';
+import type { TagListRow } from '@/types/admin';
 import { TAG_BULK_LIMIT, TAG_QUERY_MAX } from '@/lib/tag-list';
 import { LIMITS, tagNameSchema as buildTagNameSchema } from '@/lib/validation';
 
-import type { ActionState } from './auth';
+import type { ActionState } from '@/types/action';
 
 const tagNameSchema = buildTagNameSchema(`标签最多 ${LIMITS.tagName} 个字`);
 

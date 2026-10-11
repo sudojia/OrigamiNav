@@ -6,8 +6,9 @@ import type { AiConfig } from '@/db/queries/ai';
 import {
   chatCompletion,
   COMPLETION_TOKEN_BUDGET,
-  isTransientAiError,
   parseJsonObject,
+  retryTransient,
+  sleep,
 } from '@/lib/ai';
 import { getAiConcurrencyLimit, withAiQueue } from '@/lib/ai-queue';
 import { LIMITS } from '@/lib/validation';
@@ -49,7 +50,7 @@ const SYSTEM_PROMPT = [
   '- 只输出 JSON：{"description": "..."}，不要解释，不要代码块标记。',
 ].join('\n');
 
-export type CategoryDescriptionInput = {
+ type CategoryDescriptionInput = {
   id: string;
   name: string;
   titles: string[];
@@ -91,27 +92,35 @@ export async function generateCategoryDescriptions(
 const RETRY_DELAY_MS = 2_000;
 
 /**
- * One model call, retried once when the first answer breaks the length rule or
- * the provider failed transiently. Mirrors the tagging path's retry-on-empty.
+ * Transient provider failures get one backoff retry around the whole
+ * request, mirroring the tagging path's structure.
  */
-async function requestWithRetry(
+function requestWithRetry(
   config: AiConfig,
   category: CategoryDescriptionInput,
 ): Promise<string | null> {
-  try {
-    const text = await requestDescription(
-      config,
-      category,
-      DESCRIPTION_TARGET_HAN,
-    );
-    if (text) return text;
-    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-    return requestDescription(config, category, DESCRIPTION_RETRY_HAN);
-  } catch (error) {
-    if (!isTransientAiError(error)) throw error;
-    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-    return requestDescription(config, category, DESCRIPTION_RETRY_HAN);
-  }
+  return retryTransient(
+    () => requestDescriptionOnce(config, category),
+    RETRY_DELAY_MS,
+  );
+}
+
+/** One model call, retried once when the first answer breaks the length rule. */
+async function requestDescriptionOnce(
+  config: AiConfig,
+  category: CategoryDescriptionInput,
+): Promise<string | null> {
+  const text = await requestDescription(
+    config,
+    category,
+    DESCRIPTION_TARGET_HAN,
+  );
+  if (text) return text;
+  await sleep(RETRY_DELAY_MS);
+  // The retry is accepted slightly over the target, because the limit is a
+  // style rule and failing the whole generation over two characters would be
+  // worse than keeping them.
+  return requestDescription(config, category, DESCRIPTION_RETRY_HAN);
 }
 
 async function requestDescription(

@@ -1,4 +1,4 @@
-import { decodeEntities, isValidHttpUrl, sanitizeScrapedText } from '@/lib/utils';
+import { decodeEntities, htmlAttr as attributeOf, isValidHttpUrl, sanitizeScrapedText } from '@/lib/utils';
 
 /**
  * Parses the Netscape bookmark HTML format (`<H3>` folders, `<A HREF>` links,
@@ -19,14 +19,6 @@ export type ParsedImportBookmark = {
 
 const TOKEN_RE =
   /<DL\b[^>]*>|<\/DL\b[^>]*>|<H3\b([^>]*)>([\s\S]*?)<\/H3>|<A\b([^>]*)>([\s\S]*?)<\/A>|<DD\b[^>]*>([\s\S]*?)(?=\s*<|$)/gi;
-
-function attributeOf(attrs: string, name: string): string | null {
-  const match = attrs.match(
-    new RegExp(`${name}\\s*=\\s*("([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'),
-  );
-  if (!match) return null;
-  return decodeEntities(match[2] ?? match[3] ?? match[4] ?? '').trim();
-}
 
 function addDateToIso(raw: string | null): string | null {
   if (!raw) return null;

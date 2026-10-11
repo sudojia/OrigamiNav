@@ -1,5 +1,3 @@
-'use client';
-
 import { FileJson, FileUp, FolderTree, Import, Link2 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -7,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { BackupStatus } from '@/lib/backup-status';
 
+import { EmptyState } from './empty-state';
 import { ExportCard } from './import/export-card';
 import { HtmlTab } from './import/html-tab';
 import { JsonTab } from './import/json-tab';
@@ -34,20 +33,16 @@ export function ImportManager({
       />
 
       {categories.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-card border border-dashed border-border/80 bg-card/60 px-6 py-10 text-center">
-          <span className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/15">
-            <FolderTree className="size-5" aria-hidden />
-          </span>
-          <div>
-            <p className="text-sm font-medium">还没有分类</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              批量链接导入需要一个目标分类；HTML 与 JSON 导入会自动创建分类。
-            </p>
-          </div>
-          <Button asChild size="sm" variant="outline">
-            <Link href="/admin/categories">去创建分类</Link>
-          </Button>
-        </div>
+        <EmptyState
+          Icon={FolderTree}
+          title="还没有分类"
+          hint="批量链接导入需要一个目标分类；HTML 与 JSON 导入会自动创建分类。"
+          action={
+            <Button asChild size="sm" variant="outline">
+              <Link href="/admin/categories">去创建分类</Link>
+            </Button>
+          }
+        />
       ) : null}
 
       {/* Tab list rendered as method tiles. */}

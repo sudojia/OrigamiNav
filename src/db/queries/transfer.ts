@@ -7,14 +7,12 @@ import { buildSearchIndex } from '@/lib/search-index';
 import { slugifyUnique } from '@/lib/pinyin';
 
 import { db, safeQuery } from '../client';
+import { chunked } from '../chunk';
 import { bookmarks, bookmarksTags, categories, tags } from '../schema';
-
-/** Multi-row insert chunk size; keeps statements under pg's parameter cap. */
-const INSERT_CHUNK = 500;
 
 /** Full JSON backup of categories, bookmarks, tags and links; live rows only. */
 
-export type ExportBookmark = {
+ type ExportBookmark = {
   title: string;
   url: string;
   description: string;
@@ -49,17 +47,37 @@ export async function exportAllData(): Promise<ExportPayload | null> {
     async (database) => {
       const [categoryRows, bookmarkRows, linkRows, tagRows] = await Promise.all([
         database
-          .select()
+          .select({
+            id: categories.id,
+            name: categories.name,
+            slug: categories.slug,
+            description: categories.description,
+            icon: categories.icon,
+            color: categories.color,
+            sortOrder: categories.sortOrder,
+            hidden: categories.hidden,
+          })
           .from(categories)
           .where(isNull(categories.deletedAt))
           .orderBy(asc(categories.sortOrder)),
+        // Column-limited: search_index and deleted_tag_ids never reach a backup.
         database
-          .select()
+          .select({
+            id: bookmarks.id,
+            categoryId: bookmarks.categoryId,
+            title: bookmarks.title,
+            url: bookmarks.url,
+            description: bookmarks.description,
+            iconUrl: bookmarks.iconUrl,
+            sortOrder: bookmarks.sortOrder,
+            hidden: bookmarks.hidden,
+            createdAt: bookmarks.createdAt,
+          })
           .from(bookmarks)
           .where(isNull(bookmarks.deletedAt))
           .orderBy(asc(bookmarks.sortOrder)),
         database.select().from(bookmarksTags),
-        database.select().from(tags),
+        database.select({ id: tags.id, name: tags.name }).from(tags),
       ]);
 
       const tagNameById = new Map(tagRows.map((t) => [t.id, t.name]));
@@ -219,25 +237,16 @@ export async function replaceAllData(
     }
 
     // Chunked multi-row inserts instead of one roundtrip per row.
-    for (let start = 0; start < tagRows.length; start += INSERT_CHUNK) {
-      await tx.insert(tags).values(tagRows.slice(start, start + INSERT_CHUNK));
-    }
-    for (let start = 0; start < categoryRows.length; start += INSERT_CHUNK) {
-      await tx
-        .insert(categories)
-        .values(categoryRows.slice(start, start + INSERT_CHUNK));
-    }
-    for (let start = 0; start < bookmarkRows.length; start += INSERT_CHUNK) {
-      await tx
-        .insert(bookmarks)
-        .values(bookmarkRows.slice(start, start + INSERT_CHUNK));
-    }
-    for (let start = 0; start < linkRows.length; start += INSERT_CHUNK) {
-      await tx
-        .insert(bookmarksTags)
-        .values(linkRows.slice(start, start + INSERT_CHUNK))
-        .onConflictDoNothing();
-    }
+    await chunked(tagRows, (chunk) => tx.insert(tags).values(chunk));
+    await chunked(categoryRows, (chunk) =>
+      tx.insert(categories).values(chunk),
+    );
+    await chunked(bookmarkRows, (chunk) =>
+      tx.insert(bookmarks).values(chunk),
+    );
+    await chunked(linkRows, (chunk) =>
+      tx.insert(bookmarksTags).values(chunk).onConflictDoNothing(),
+    );
 
     return { categories: payloadCategories.length, bookmarks: bookmarkCount };
   });

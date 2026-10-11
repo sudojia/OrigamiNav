@@ -9,7 +9,7 @@ import { readBytesLimited } from '@/lib/scrape';
 /** Cap on a single icon; favicons are small, and the cache stores them base64. */
 const MAX_ICON_BYTES = 262_144; // 256KB
 
-export type FetchedIcon = { mimeType: string; bytes: Uint8Array };
+ type FetchedIcon = { mimeType: string; bytes: Uint8Array };
 
 /** `timeoutMs` is the caller's per-source slice of its own chain budget. */
 export async function fetchIconBytes(

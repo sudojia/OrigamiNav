@@ -19,7 +19,7 @@ import {
 
 const NO_TAGS = sql`not exists (select 1 from ${bookmarksTags} where ${bookmarksTags.bookmarkId} = ${bookmarks.id})`;
 
-export type UntaggedBookmark = {
+ type UntaggedBookmark = {
   id: string;
   url: string;
   title: string;
@@ -75,7 +75,7 @@ export type AiConfig = {
   tagMaxLen: number;
 };
 
-export type AiConfigStatus = {
+ type AiConfigStatus = {
   protocol: AiProtocol;
   baseUrl: string;
   model: string;

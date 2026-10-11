@@ -1,7 +1,7 @@
 /** Validates the `?next=` redirect target for the login flow. */
 
 /** Default login redirect target. */
-export const DEFAULT_NEXT_PATH = '/admin';
+ const DEFAULT_NEXT_PATH = '/admin';
 
 /** Longest accepted target. */
 const MAX_NEXT_LENGTH = 200;

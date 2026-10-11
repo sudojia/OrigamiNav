@@ -7,7 +7,7 @@ import { searchExtBookmarks } from '@/db/queries/search';
 import { extJson, extPreflight, verifyExtToken } from '@/lib/ext-api';
 import { queueAiTagGeneration } from '@/lib/ai-tags';
 import { revalidateSite } from '@/lib/revalidate';
-import { httpUrlSchema, LIMITS, optionalHttpUrlSchema } from '@/lib/validation';
+import { bookmarkFields } from '@/lib/validation';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,27 +26,18 @@ const searchSchema = z.object({
 });
 
 const bodySchema = z.object({
-  title: z
-    .string()
-    .trim()
-    .min(1, '请输入标题')
-    .max(LIMITS.title, `标题最多 ${LIMITS.title} 个字`),
-  url: z
-    .string()
-    .trim()
-    .min(1, '请输入 URL')
-    .max(LIMITS.url, `URL 最长 ${LIMITS.url} 个字符`)
-    .pipe(httpUrlSchema('请输入 http(s):// 开头的完整链接')),
+  title: bookmarkFields.title,
+  url: bookmarkFields.url,
   // Optional fields tolerate missing keys and JSON nulls from clients.
   description: z.preprocess(
     (value) => (value == null ? '' : value),
-    z.string().trim().max(LIMITS.description, `描述最多 ${LIMITS.description} 个字`),
+    bookmarkFields.description,
   ),
   iconUrl: z.preprocess(
     (value) => (value == null ? '' : value),
-    optionalHttpUrlSchema(LIMITS.url, '图标地址'),
+    bookmarkFields.iconUrl,
   ),
-  categoryId: z.string().min(1, '请选择分类'),
+  categoryId: bookmarkFields.categoryId,
   // Private bookmarks stay invisible on the public site, admin only.
   hidden: z.boolean().default(false),
   // Adds a second bookmark for a URL that already exists.

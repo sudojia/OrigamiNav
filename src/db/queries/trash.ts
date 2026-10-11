@@ -16,6 +16,8 @@ import { nowIso } from '@/lib/ids';
 import { MS_PER_DAY } from '@/lib/utils';
 
 import { db, safeQuery, type Transaction } from '../client';
+import { chunked } from '../chunk';
+import type { TrashCategoryBookmark, TrashContents } from '@/types/admin';
 import { bookmarks, bookmarksTags, categories, tags } from '../schema';
 import { rebuildSearchIndexesFor } from './bookmarks';
 
@@ -25,45 +27,10 @@ import { rebuildSearchIndexesFor } from './bookmarks';
  * so a category that goes down takes its bookmarks with it under one stamp.
  */
 
-/** Multi-row insert chunk size; keeps statements under pg's parameter cap. */
-const INSERT_CHUNK = 500;
-
 /** Trashed bookmarks carry their detached tag ids comma-joined. */
 function splitTagIds(value: string): string[] {
   return value ? value.split(',').filter(Boolean) : [];
 }
-
-/** A trashed bookmark listed under the category that went down with it. */
-export type TrashCategoryBookmark = {
-  id: string;
-  title: string;
-  url: string;
-  deletedAt: string;
-  /** Trashed before its category, so restoring the category leaves it behind. */
-  earlierThanCategory: boolean;
-};
-
-export type TrashCategory = {
-  id: string;
-  name: string;
-  color: string | null;
-  deletedAt: string;
-  bookmarks: TrashCategoryBookmark[];
-};
-
-/** A trashed bookmark whose category is still live; restorable on its own. */
-export type TrashLooseBookmark = {
-  id: string;
-  title: string;
-  url: string;
-  deletedAt: string;
-  categoryName: string;
-};
-
-export type TrashContents = {
-  categories: TrashCategory[];
-  bookmarks: TrashLooseBookmark[];
-};
 
 /** Everything waiting in the recycle bin, newest first. */
 export async function getTrashContents(): Promise<TrashContents> {
@@ -156,12 +123,12 @@ async function relinkTags(
       .filter((tagId) => aliveIds.has(tagId))
       .map((tagId) => ({ bookmarkId: entry.id, tagId })),
   );
-  for (let start = 0; start < rows.length; start += INSERT_CHUNK) {
-    await tx
+  await chunked(rows, (chunk) =>
+    tx
       .insert(bookmarksTags)
-      .values(rows.slice(start, start + INSERT_CHUNK))
-      .onConflictDoNothing();
-  }
+      .values(chunk)
+      .onConflictDoNothing(),
+  );
 }
 
 /** Restores a trashed bookmark; rejects one whose category is still trashed. */

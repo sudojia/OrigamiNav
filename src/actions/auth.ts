@@ -1,12 +1,11 @@
 'use server';
 
-import { isIP } from 'node:net';
-
 import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 
 import { guardActionWithAdmin } from '@/lib/action-guard';
+import type { ActionState } from '@/types/action';
 import { bumpAdminTokenVersion, countAdmins, createAdmin, getAdminByUsername, updatePassword } from '@/db/queries/admin';
 import {
   claimInstallLock,
@@ -28,16 +27,11 @@ import {
   verifyPassword,
 } from '@/lib/auth/password';
 import { nowIso } from '@/lib/ids';
+import { trustedClientKey } from '@/lib/rate-limit';
 import { revalidateSite } from '@/lib/revalidate';
 import { sanitizeNext } from '@/lib/safe-redirect';
 import { getSession } from '@/lib/session';
 import { LIMITS } from '@/lib/validation';
-
-export type ActionState = {
-  ok: boolean;
-  message: string;
-  field?: string;
-};
 
 // ─── Login rate limit ────────────────────────────────────────────────────────
 
@@ -122,12 +116,7 @@ function recordLoginAttempt(key: string): void {
 
 /** Returns `ip:<addr>` from x-real-ip when TRUSTED_PROXY=true, else null. */
 async function loginClientKey(): Promise<string | null> {
-  if (process.env.TRUSTED_PROXY !== 'true') return null;
-  const headerList = await headers();
-  // Accepts only a bare IP address.
-  const real = headerList.get('x-real-ip')?.trim();
-  if (!real || isIP(real) === 0) return null;
-  return `ip:${real}`;
+  return trustedClientKey(await headers());
 }
 
 const installSchema = z.object({
@@ -388,6 +377,20 @@ export async function changePasswordAction(
     return { ok: false, field: 'newPassword', message: strength.message };
   }
 
+  // Failed verifies share the login attempt window: the limit protects the
+  // credential, not the endpoint.
+  const userKey = `user:${auth.username}`;
+  if (await loginThrottled(userKey)) {
+    return {
+      ok: false,
+      field: 'currentPassword',
+      message: '尝试过于频繁，请稍后再试',
+    };
+  }
+  if (!consumeLoginHashBudget()) {
+    return { ok: false, message: '尝试过于频繁，请稍后再试' };
+  }
+
   try {
     const record = await getAdminByUsername(auth.username);
     if (!record) {
@@ -395,6 +398,7 @@ export async function changePasswordAction(
     }
     const valid = await verifyPassword(currentPassword, record.passwordHash);
     if (!valid) {
+      recordLoginAttempt(userKey);
       return { ok: false, field: 'currentPassword', message: '当前密码不正确' };
     }
     await updatePassword(record.id, await hashPassword(newPassword));

@@ -68,7 +68,7 @@ npm ci && npm run build && npm run start    # 默认监听 3000 端口
 
 前面挂 Nginx / Caddy 反代即可。若反代会覆写 `X-Real-IP` 请求头，可开启 `TRUSTED_PROXY` 让登录限速按客户端 IP 生效（详见 [`.env.example`](./.env.example)）。
 
-容器（基于 standalone 产物，`next.config.ts` 已开启 `output: 'standalone'`）：
+容器（构建时设 `STANDALONE=true` 产出 standalone 产物；普通 `npm run start` 部署不要设它）：
 
 ```dockerfile
 FROM node:22-alpine AS builder
@@ -76,7 +76,7 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-RUN npm run build
+RUN STANDALONE=true npm run build
 
 FROM node:22-alpine AS runner
 WORKDIR /app

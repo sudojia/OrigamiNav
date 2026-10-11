@@ -339,7 +339,7 @@ import {
 
 /** Curated category icon palette, grouped by theme; only verified lucide exports. */
 
-export type CategoryIconOption = {
+ type CategoryIconOption = {
   name: string;
   label: string;
   Icon: LucideIcon;

@@ -16,7 +16,7 @@ import { FetchBlockedError, pinnedLookup, resolveAndValidate } from '@/lib/scrap
 const MAX_HOPS = 3;
 
 /** Why a fetch failed; each caller owns its own user-facing copy. */
-export type FetchFailureReason =
+ type FetchFailureReason =
   | 'blocked'
   | 'too-many-redirects'
   | 'bad-redirect'
@@ -31,7 +31,7 @@ export type FetchFailure = {
   status?: number;
 };
 
-export type FetchOutcome<T> = { ok: true; value: T } | FetchFailure;
+ type FetchOutcome<T> = { ok: true; value: T } | FetchFailure;
 
 export async function fetchFollowing<T>(
   url: string,

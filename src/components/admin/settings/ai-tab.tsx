@@ -27,13 +27,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import {
   AI_CONCURRENCY_BOUNDS,
@@ -42,7 +35,10 @@ import {
   type AiProtocol,
 } from '@/types/nav';
 
-import { SettingsField } from '../form-primitives';
+import {
+  SettingsField,
+  SettingsSelect,
+} from '../form-primitives';
 import { FieldSection } from './field-section';
 
 const TAG_COUNT_OPTIONS = Array.from(
@@ -59,42 +55,6 @@ const TAG_LEN_OPTIONS = Array.from(
   { length: AI_TAG_LEN_BOUNDS.max - AI_TAG_LEN_BOUNDS.min + 1 },
   (_, i) => AI_TAG_LEN_BOUNDS.min + i,
 );
-
-/** Compact labelled select used by the tag-generation rows. */
-function RowSelect({
-  id,
-  ariaLabel,
-  value,
-  onValueChange,
-  options,
-  triggerClassName,
-}: {
-  id: string;
-  ariaLabel: string;
-  value: string;
-  onValueChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
-  triggerClassName?: string;
-}) {
-  return (
-    <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger
-        id={id}
-        aria-label={ariaLabel}
-        className={cn('w-24', triggerClassName)}
-      >
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            {option.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
 
 /** One label/control row inside the tag-generation panel. */
 function ParamRow({
@@ -165,7 +125,7 @@ export type AiStatus = {
 /** Outcome of the last connection test. */
 export type AiTestResult = { ok: boolean; message: string };
 
-export interface AiTabProps {
+ interface AiTabProps {
   active: boolean;
   status: AiStatus;
   protocol: AiProtocol;
@@ -509,7 +469,7 @@ export function AiTab({
               label="标签数量"
               hint="每条书签生成的标签个数区间。"
             >
-              <RowSelect
+              <SettingsSelect
                 id="settings-ai-tag-min"
                 ariaLabel="标签数量下限"
                 value={tagMin}
@@ -521,7 +481,7 @@ export function AiTab({
                 triggerClassName="w-20"
               />
               <span className="text-xs text-muted-foreground">至</span>
-              <RowSelect
+              <SettingsSelect
                 id="settings-ai-tag-max"
                 ariaLabel="标签数量上限"
                 value={tagMax}
@@ -538,7 +498,7 @@ export function AiTab({
               label="单标签字数"
               hint="每个标签的字数上限，越短越精简。"
             >
-              <RowSelect
+              <SettingsSelect
                 id="settings-ai-tag-len"
                 ariaLabel="单标签字数上限"
                 value={tagMaxLen}
@@ -547,6 +507,7 @@ export function AiTab({
                   value: String(n),
                   label: `≤ ${n} 字`,
                 }))}
+                triggerClassName="w-24"
               />
             </ParamRow>
 
@@ -554,7 +515,7 @@ export function AiTab({
               label="并发数"
               hint="同时进行的 AI 请求上限，批量收藏时调低可避免服务限流。"
             >
-              <RowSelect
+              <SettingsSelect
                 id="settings-ai-concurrency"
                 ariaLabel="并发数"
                 value={aiConcurrency}

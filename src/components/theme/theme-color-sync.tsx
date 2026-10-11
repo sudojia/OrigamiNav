@@ -3,9 +3,8 @@
 import { useTheme } from 'next-themes';
 import { useEffect } from 'react';
 
+import { ADMIN_MODE_EVENT } from '@/components/admin/admin-mode';
 import type { SkinId } from '@/types/nav';
-
-const ADMIN_MODE_EVENT = 'origaminav:admin-mode';
 
 /**
  * Syncs the <html> data-skin attribute and the meta theme-color to the page's

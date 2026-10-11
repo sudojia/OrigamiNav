@@ -43,7 +43,7 @@ export function buildDonutSlices(
 
 // ── Rank bars ────────────────────────────────────────────────────────────────
 
-export type RankBarProps = {
+ type RankBarProps = {
   rank: number;
   name: string;
   count: number;
@@ -117,7 +117,7 @@ export function RankBar({
 
 // ── Stat card ────────────────────────────────────────────────────────────────
 
-export type StatCardProps = {
+ type StatCardProps = {
   label: string;
   value: number;
   href: string;

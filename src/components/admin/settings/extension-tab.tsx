@@ -12,7 +12,8 @@ import {
   ShieldAlert,
   Trash2,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useTimedValue } from '@/lib/use-timed-value';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 import {
@@ -34,30 +35,14 @@ export function ExtensionTab({
 }) {
   const [token, setToken] = useState(initialToken);
   const [revealed, setRevealed] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, flashCopied] = useTimedValue<boolean>(2000);
   const [busy, setBusy] = useState(false);
-  const [confirming, setConfirming] = useState<'generate' | 'revoke' | null>(
-    null,
-  );
-  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (confirmTimer.current) clearTimeout(confirmTimer.current);
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    },
-    [],
-  );
-
-  function armConfirm(kind: 'generate' | 'revoke') {
-    setConfirming(kind);
-    confirmTimer.current = setTimeout(() => setConfirming(null), 4000);
-  }
+  const [confirming, armConfirm, clearConfirm] =
+    useTimedValue<'generate' | 'revoke'>(4000);
 
   async function runAction(kind: 'generate' | 'revoke') {
     setBusy(true);
-    setConfirming(null);
+    clearConfirm();
     try {
       const result =
         kind === 'generate'
@@ -79,8 +64,7 @@ export function ExtensionTab({
     if (!token) return;
     try {
       await navigator.clipboard.writeText(token);
-      setCopied(true);
-      copiedTimer.current = setTimeout(() => setCopied(false), 2000);
+      flashCopied(true);
     } catch {
       toast.error('复制失败，请手动选择复制');
     }
@@ -158,7 +142,7 @@ export function ExtensionTab({
                   variant="ghost"
                   size="sm"
                   disabled={busy}
-                  onClick={() => setConfirming(null)}
+                  onClick={() => clearConfirm()}
                 >
                   取消
                 </Button>
@@ -192,7 +176,7 @@ export function ExtensionTab({
                       variant="ghost"
                       size="sm"
                       disabled={busy}
-                      onClick={() => setConfirming(null)}
+                      onClick={() => clearConfirm()}
                     >
                       取消
                     </Button>

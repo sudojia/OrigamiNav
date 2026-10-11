@@ -7,7 +7,7 @@ import { siteAssets } from '../schema';
 
 /** Uploaded site imagery stored as base64 text; degrades to null on failure. */
 
-export type SiteAsset = { mimeType: string; data: string; updatedAt: string };
+ type SiteAsset = { mimeType: string; data: string; updatedAt: string };
 
 export const SITE_ASSET_KEYS = {
   favicon: 'favicon',
