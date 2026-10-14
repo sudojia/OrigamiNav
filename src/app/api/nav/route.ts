@@ -9,7 +9,7 @@ import {
 import { getSiteSettings } from '@/db/queries/settings';
 import { withCategorySvgs } from '@/lib/category-icon-svg';
 import { isAdmin } from '@/lib/session';
-import { tagSlugParamSchema } from '@/lib/validation';
+import { slugParamSchema } from '@/lib/validation';
 import type { NavData, NavSearchResult } from '@/types/nav';
 
 export const dynamic = 'force-dynamic';
@@ -39,7 +39,9 @@ const querySchema = z.object({
   cursor: cursorSchema.optional(),
   limit: z.coerce.number().int().min(1).max(SEARCH_PAGE_SIZE).optional(),
   /** Tag page slug, so a refresh returns the same narrowed payload. */
-  tag: tagSlugParamSchema.default(''),
+  tag: slugParamSchema.default(''),
+  /** Category page slug: that category stays uncapped, as in the page render. */
+  category: slugParamSchema.default(''),
   /** Tag page's own tag id, ANDed with `tags`; the path states it, not the OR group. */
   pin: z.string().trim().max(64).default(''),
 });
@@ -58,6 +60,7 @@ export async function GET(request: Request) {
     cursor: rawCursor === null ? undefined : rawCursor,
     limit: params.get('limit') ?? undefined,
     tag: params.get('tag') ?? undefined,
+    category: params.get('category') ?? undefined,
     pin: params.get('pin') ?? undefined,
   });
   if (!parsed.success) {
@@ -68,7 +71,7 @@ export async function GET(request: Request) {
   }
 
   const includeHidden = await isAdmin();
-  const { q, tags, cursor, limit, tag, pin } = parsed.data;
+  const { q, tags, cursor, limit, tag, category, pin } = parsed.data;
 
   // A search is any request carrying a query, a tag filter, a pinned tag or a
   // page cursor.
@@ -88,12 +91,14 @@ export async function GET(request: Request) {
 
   // Mirrors the page render: a browsing snapshot is capped to the preview
   // setting (admins exempt inside getNavData), while a tag page is by
-  // definition the complete list for its tag.
+  // definition the complete list for its tag and a category page keeps its own
+  // category uncapped.
   const settings = await getSiteSettings();
   const nav: NavData = await getNavData({
     includeHidden,
     tagSlug: tag || undefined,
     previewLimit: tag ? 0 : settings.categoryPreviewCount,
+    pinnedCategorySlug: category || undefined,
   });
   return Response.json(await withCategorySvgs(nav), { headers: CACHE_HEADERS });
 }

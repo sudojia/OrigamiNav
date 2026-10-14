@@ -4,6 +4,7 @@ import { CornerDownLeft, ExternalLink, Hash, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Favicon } from '@/components/nav/favicon';
+import { Button } from '@/components/ui/button';
 import {
   CommandDialog,
   CommandGroup,
@@ -17,6 +18,13 @@ import type { NavSearchResult } from '@/types/nav';
 const SEARCH_DEBOUNCE_MS = 180;
 /** Rows rendered per group; the server caps the total at SEARCH_LIMIT. */
 const GROUP_LIMIT = 20;
+
+/** Stand-in for a malformed payload, so the render sees a well-formed result. */
+const NO_RESULTS: NavSearchResult = {
+  categories: [],
+  truncated: false,
+  cursor: null,
+};
 
 type CategoryEntry = {
   kind: 'category';
@@ -53,6 +61,9 @@ export function CommandPalette({
 }) {
   const [query, setQuery] = useState('');
   const [result, setResult] = useState<NavSearchResult | null>(null);
+  const [failed, setFailed] = useState(false);
+  // Incremented by the retry button to re-run the search effect.
+  const [attempt, setAttempt] = useState(0);
   // Bumped per request so a slow earlier response cannot overwrite a later one.
   const seqRef = useRef(0);
 
@@ -71,15 +82,12 @@ export function CommandPalette({
         if (!response.ok) throw new Error(String(response.status));
         const payload = (await response.json()) as NavSearchResult;
         if (seq !== seqRef.current) return;
-        setResult(
-          Array.isArray(payload.categories)
-            ? payload
-            : { categories: [], truncated: false, cursor: null },
-        );
+        setResult(Array.isArray(payload.categories) ? payload : NO_RESULTS);
+        setFailed(false);
       } catch (error) {
         if (controller.signal.aborted || seq !== seqRef.current) return;
         console.error('[origaminav] palette search failed', error);
-        setResult({ categories: [], truncated: false, cursor: null });
+        setFailed(true);
       }
     }, SEARCH_DEBOUNCE_MS);
 
@@ -87,12 +95,18 @@ export function CommandPalette({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [query]);
+  }, [query, attempt]);
 
   /** A query change resets the result set, which restores the loading state. */
   const handleQueryChange = useCallback((next: string) => {
     setQuery(next);
     setResult(null);
+    setFailed(false);
+  }, []);
+
+  const retry = useCallback(() => {
+    setFailed(false);
+    setAttempt((n) => n + 1);
   }, []);
 
   // The server already ordered categories by display order and bookmarks by
@@ -131,6 +145,7 @@ export function CommandPalette({
       if (!next) {
         setQuery('');
         setResult(null);
+        setFailed(false);
       }
       onOpenChange(next);
     },
@@ -141,6 +156,7 @@ export function CommandPalette({
     onOpenChange(false);
     setQuery('');
     setResult(null);
+    setFailed(false);
     if (entry.kind === 'category') {
       onJumpToCategory(entry.slug);
       return;
@@ -150,9 +166,15 @@ export function CommandPalette({
   }
 
   const hasQuery = query.trim().length > 0;
-  // Derived: a query with no result yet means a request is outstanding.
-  const loading = hasQuery && result === null;
-  const empty = !loading && categories.length === 0 && bookmarks.length === 0;
+  // A query with no settled result yet means a request is outstanding; a failed
+  // one settles nothing, so it is tracked separately.
+  const loading = hasQuery && !failed && result === null;
+  const empty =
+    hasQuery &&
+    !loading &&
+    !failed &&
+    categories.length === 0 &&
+    bookmarks.length === 0;
 
   return (
     // Disables cmdk's own filtering; ranking is done by the server.
@@ -175,14 +197,23 @@ export function CommandPalette({
           </div>
         ) : null}
 
-        {hasQuery && loading && empty ? (
+        {loading ? (
           <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin" aria-hidden />
             正在搜索…
           </div>
         ) : null}
 
-        {empty && !loading ? (
+        {hasQuery && failed ? (
+          <div className="flex flex-col items-center gap-3 py-8 text-sm text-muted-foreground">
+            <span>搜索失败，请检查网络后重试。</span>
+            <Button variant="outline" size="sm" onClick={retry}>
+              重试
+            </Button>
+          </div>
+        ) : null}
+
+        {empty ? (
           <div className="py-8 text-center text-sm text-muted-foreground">
             没有匹配的结果
           </div>

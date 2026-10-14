@@ -74,41 +74,66 @@ export function BookmarkFormDialog({
   // Auto fill on URL blur: scrape only. AI tags are generated server-side
   // after the save (aiTags flag), so the dialog never waits on the model.
   const [fillPhase, setFillPhase] = useState<'scrape' | null>(null);
+  // The bookmark's own URL counts as filled, so opening the editor does not
+  // re-scrape it; a failed scrape stays absent and is retried by blurring again.
   const lastFilledUrlRef = useRef(bookmark?.url ?? '');
+  // URL whose scrape is in flight, so a repeated blur does not fire twice.
+  const pendingUrlRef = useRef<string | null>(null);
+  // Bumped per request so a slow response cannot fill the form for a URL the
+  // user has already replaced.
+  const fillSeqRef = useRef(0);
   const [aiTagOnSave, setAiTagOnSave] = useState(false);
-  // User-typed title/description are never overwritten by the auto fill.
-  const [titleEdited, setTitleEdited] = useState(false);
-  const [descriptionEdited, setDescriptionEdited] = useState(false);
+  // User-typed title/description are never overwritten by the auto fill. Refs
+  // rather than state: the response reads them after the await, where a value
+  // captured at blur time would still say "untouched".
+  const titleEditedRef = useRef(false);
+  const descriptionEditedRef = useRef(false);
 
   useActionFeedback(state, onClose);
 
   /**
-   * Fires on URL blur: skips invalid/duplicate URLs and never runs while a
-   * fill is already in progress. Title/description are only filled when the
-   * user has not typed their own.
+   * Fires on URL blur: skips invalid URLs and ones already scraped. A blur on a
+   * different URL supersedes the request in flight. Title/description are only
+   * filled when the user has not typed their own.
    */
   async function autoFillFromUrl() {
     const target = url.trim();
-    if (fillPhase || !target || !isValidHttpUrl(target)) return;
-    if (target === lastFilledUrlRef.current) return;
-    lastFilledUrlRef.current = target;
+    if (!target || !isValidHttpUrl(target)) return;
+    if (target === lastFilledUrlRef.current || target === pendingUrlRef.current) {
+      return;
+    }
 
+    const seq = (fillSeqRef.current += 1);
+    pendingUrlRef.current = target;
     setFillPhase('scrape');
     try {
       const meta = await fetchUrlMetaAction(target);
+      // A newer blur took over; this response describes a URL no longer in the
+      // field, so it must not fill anything.
+      if (seq !== fillSeqRef.current) return;
       if (!meta.ok) {
         toast.error(meta.message);
         return;
       }
-      if (!titleEdited && meta.title) setTitle(meta.title);
-      if (!descriptionEdited && meta.description) setDescription(meta.description);
-      if (meta.iconUrl && !iconUrl) setIconUrl(meta.iconUrl);
+      lastFilledUrlRef.current = target;
+      if (!titleEditedRef.current && meta.title) setTitle(meta.title);
+      if (!descriptionEditedRef.current && meta.description) {
+        setDescription(meta.description);
+      }
+      // Functional update: reads the latest icon, not the one from blur time.
+      const scrapedIcon = meta.iconUrl;
+      if (scrapedIcon) setIconUrl((current) => current || scrapedIcon);
       if (aiEnabled) setAiTagOnSave(true);
       toast.success('已抓取网页信息');
     } catch {
+      if (seq !== fillSeqRef.current) return;
       toast.error('抓取失败，请手动填写');
     } finally {
-      setFillPhase(null);
+      // Only the newest request owns the pending slot and the hint.
+      if (seq === fillSeqRef.current) {
+        pendingUrlRef.current = null;
+        setFillPhase(null);
+      }
     }
   }
 
@@ -157,7 +182,7 @@ export function BookmarkFormDialog({
               value={title}
               onChange={(event) => {
                 setTitle(event.target.value);
-                setTitleEdited(true);
+                titleEditedRef.current = true;
               }}
               maxLength={100}
               required
@@ -191,7 +216,7 @@ export function BookmarkFormDialog({
               value={description}
               onChange={(event) => {
                 setDescription(event.target.value);
-                setDescriptionEdited(true);
+                descriptionEditedRef.current = true;
               }}
               maxLength={300}
               rows={2}

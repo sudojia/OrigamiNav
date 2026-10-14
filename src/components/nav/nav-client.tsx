@@ -71,6 +71,9 @@ const CommandPalette = dynamic(
 /** Typing pause before a search request goes out. */
 const SEARCH_DEBOUNCE_MS = 200;
 
+/** State of the current search request; `ready` also covers "no filter active". */
+type SearchStatus = 'ready' | 'loading' | 'failed';
+
 /** "2026" in the start year, then "2026 - 2027" once the year rolls over. */
 function copyrightYearLabel(currentYear: number): string {
   return currentYear > PROJECT_START_YEAR
@@ -121,7 +124,9 @@ export function NavClient({
   // The browser holds no search index, so any query or tag filter round-trips.
   // A null result set means "no filter is active, show the server snapshot".
   const [results, setResults] = useState<NavSearchResult | null>(null);
-  const [searchFailed, setSearchFailed] = useState(false);
+  // Kept next to `results` rather than derived from it: a failed request leaves
+  // no result set either, so the two states are only distinguishable here.
+  const [searchStatus, setSearchStatus] = useState<SearchStatus>('ready');
   const [loadingMore, setLoadingMore] = useState(false);
   // Incremented by the retry button to re-run the search effect.
   const [searchAttempt, setSearchAttempt] = useState(0);
@@ -180,7 +185,9 @@ export function NavClient({
     setQuery(nextQuery);
     setActiveTags(nextTags);
     setResults(null);
-    setSearchFailed(false);
+    setSearchStatus(
+      nextQuery.trim() || nextTags.length > 0 ? 'loading' : 'ready',
+    );
     // The URL is now the source of the state, so the next URL change is external.
     typedSinceSyncRef.current = false;
   }, []);
@@ -218,10 +225,14 @@ export function NavClient({
 
   // ── Freshness: re-syncs only when the tab becomes visible again ───────────
   // The server snapshot stays current through admin edits (revalidateSite),
-  // so there is no mount-time refetch; returning to the tab catches up. A tag
-  // page asks for its own slice: the unfiltered payload would widen the page.
+  // so there is no mount-time refetch; returning to the tab catches up. A
+  // pinned page asks for its own slice: the unfiltered payload would widen a
+  // tag page and re-cap a category page to the preview setting. The session
+  // probe carries the tag slice only, because an admin payload is never capped.
   const tagQuery = pinnedTag ? `?tag=${encodeURIComponent(pinnedTag.slug)}` : '';
-  const navUrl = `/api/nav${tagQuery}`;
+  const navUrl = `/api/nav${
+    pinnedSlug ? `?category=${encodeURIComponent(pinnedSlug)}` : tagQuery
+  }`;
   const meUrl = `/api/me${tagQuery}`;
   const refreshNav = useCallback(async () => {
     try {
@@ -272,11 +283,11 @@ export function NavClient({
             ? payload
             : { categories: [], truncated: false, cursor: null },
         );
-        setSearchFailed(false);
+        setSearchStatus('ready');
       } catch (error) {
         if (controller.signal.aborted || seq !== searchSeq.current) return;
         console.error('[origaminav] search request failed', error);
-        setSearchFailed(true);
+        setSearchStatus('failed');
       }
     }, SEARCH_DEBOUNCE_MS);
 
@@ -512,22 +523,25 @@ export function NavClient({
   }, [shownCategoryIds]);
 
   // ── Filter handlers ───────────────────────────────────────────────────────
-  // A filter change resets `results` to null, which is what puts the list back
-  // into its "request outstanding" state until the next response lands.
+  // A filter change empties `results` and marks the request as in flight, which
+  // is what puts the list into its loading state until the response lands.
   const applyQuery = useCallback((next: string) => {
     typedSinceSyncRef.current = true;
     setQuery(next);
     setResults(null);
+    setSearchStatus(
+      next.trim() || activeTagsRef.current.length > 0 ? 'loading' : 'ready',
+    );
   }, []);
 
-  const applyTags = useCallback(
-    (next: string[] | ((prev: string[]) => string[])) => {
-      typedSinceSyncRef.current = true;
-      setActiveTags(next);
-      setResults(null);
-    },
-    [],
-  );
+  const applyTags = useCallback((next: string[]) => {
+    typedSinceSyncRef.current = true;
+    setActiveTags(next);
+    setResults(null);
+    setSearchStatus(
+      queryRef.current.trim() || next.length > 0 ? 'loading' : 'ready',
+    );
+  }, []);
 
   /**
    * Leaves a tag page for the full site. Only an explicit "drop this tag" does
@@ -539,7 +553,7 @@ export function NavClient({
     setQuery('');
     setActiveTags([]);
     setResults(null);
-    setSearchFailed(false);
+    setSearchStatus('ready');
     router.push('/');
   }, [router]);
 
@@ -549,8 +563,12 @@ export function NavClient({
         leaveTagPage();
         return;
       }
-      applyTags((prev) =>
-        prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id],
+      // Read through the ref so this callback keeps a stable identity.
+      const current = activeTagsRef.current;
+      applyTags(
+        current.includes(id)
+          ? current.filter((tag) => tag !== id)
+          : [...current, id],
       );
     },
     [applyTags, pinnedTag, leaveTagPage],
@@ -564,7 +582,7 @@ export function NavClient({
     setQuery('');
     setActiveTags([]);
     setResults(null);
-    setSearchFailed(false);
+    setSearchStatus('ready');
   }, []);
 
   // ── Write the filters back into the URL ───────────────────────────────────
@@ -753,9 +771,14 @@ export function NavClient({
   const pinnedView = pinnedSlug !== null || pinnedTag !== null;
 
   const hasFilters = query.trim().length > 0 || activeTags.length > 0;
-  // Derived, not stored: a request is outstanding until results replace the
-  // null placeholder that a filter change resets them to.
-  const searching = hasFilters && results === null;
+  const searching = hasFilters && searchStatus === 'loading';
+  // A failed request leaves no results, so the notice replaces the list rather
+  // than sitting next to stale rows; retrying re-runs the search effect.
+  const searchFailed = hasFilters && searchStatus === 'failed';
+  const retrySearch = useCallback(() => {
+    setSearchStatus('loading');
+    setSearchAttempt((attempt) => attempt + 1);
+  }, []);
 
   return (
     <div className="min-h-dvh bg-background">
@@ -926,32 +949,26 @@ export function NavClient({
               title="还没有任何书签"
               body="登录后台添加分类和书签。"
             />
-          ) : selectedCategory && selectedCategory.bookmarks.length === 0 ? (
+          ) : !hasFilters &&
+            selectedCategory &&
+            selectedCategory.bookmarks.length === 0 ? (
             <Notice
               title="这个分类还没有公开书签"
               body="它下面的书签都被设为私有，或还没有添加书签。"
             />
-          ) : hasFilters && searching && results === null ? (
+          ) : searching ? (
             <p
               className="py-14 text-center text-sm text-muted-foreground"
               role="status"
             >
               正在搜索…
             </p>
-          ) : hasFilters && searchFailed ? (
+          ) : searchFailed ? (
             <Notice
               title="搜索失败"
               body="无法连接到服务器，请检查网络后重试。"
               action={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    // Re-runs the search effect.
-                    setSearchFailed(false);
-                    setSearchAttempt((n) => n + 1);
-                  }}
-                >
+                <Button variant="outline" size="sm" onClick={retrySearch}>
                   重试
                 </Button>
               }

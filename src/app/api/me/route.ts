@@ -1,7 +1,7 @@
 import { getNavData } from '@/db/queries/nav';
 import { withCategorySvgs } from '@/lib/category-icon-svg';
 import { getCurrentAdmin } from '@/lib/session';
-import { tagSlugParamSchema } from '@/lib/validation';
+import { slugParamSchema } from '@/lib/validation';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +24,7 @@ export async function GET(request: Request) {
   }
 
   const rawTag = new URL(request.url).searchParams.get('tag');
-  const parsedTag = rawTag === null ? null : tagSlugParamSchema.safeParse(rawTag);
+  const parsedTag = rawTag === null ? null : slugParamSchema.safeParse(rawTag);
   const malformedTag = parsedTag !== null && !parsedTag.success;
 
   // A tag that cannot be parsed is not the same as no tag: sending the whole

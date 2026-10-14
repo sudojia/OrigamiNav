@@ -69,5 +69,5 @@ export const bookmarkFields = {
   iconUrl: optionalHttpUrlSchema(LIMITS.url, '图标地址'),
 } as const;
 
-/** Tag slug from a query string, naming the tag page a client refreshes from. */
-export const tagSlugParamSchema = z.string().trim().max(SLUG_MAX_LENGTH);
+/** Slug from a query string, naming the tag or category page a client refreshes from. */
+export const slugParamSchema = z.string().trim().max(SLUG_MAX_LENGTH);
