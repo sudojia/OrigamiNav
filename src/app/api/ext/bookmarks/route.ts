@@ -2,9 +2,10 @@ import { z } from 'zod';
 
 import { createBookmark, getBookmarkByUrl } from '@/db/queries/bookmarks';
 import { listCategoryOptions } from '@/db/queries/categories';
-import { errorMessage, pgErrorCode } from '@/db/client';
+import { pgErrorCode } from '@/db/client';
 import { searchExtBookmarks } from '@/db/queries/search';
 import { extJson, extPreflight, verifyExtToken } from '@/lib/ext-api';
+import { userMessage } from '@/lib/errors';
 import { queueAiTagGeneration } from '@/lib/ai-tags';
 import { revalidateSite } from '@/lib/revalidate';
 import { bookmarkFields } from '@/lib/validation';
@@ -133,7 +134,7 @@ export async function POST(request: Request) {
       );
     }
     return extJson(
-      { ok: false, message: `创建失败：${errorMessage(error)}` },
+      { ok: false, message: userMessage(error, '创建失败，请重试') },
       { status: 500 },
     );
   }

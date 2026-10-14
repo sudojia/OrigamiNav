@@ -12,6 +12,7 @@ import {
   sql,
 } from 'drizzle-orm';
 
+import { BusinessError } from '@/lib/errors';
 import { nowIso } from '@/lib/ids';
 import { MS_PER_DAY } from '@/lib/utils';
 
@@ -144,9 +145,9 @@ export async function restoreBookmark(id: string): Promise<void> {
       .where(and(eq(bookmarks.id, id), isNotNull(bookmarks.deletedAt)))
       .limit(1);
     const row = rows[0];
-    if (!row) throw new Error('书签不在回收站中');
+    if (!row) throw new BusinessError('书签不在回收站中');
     if (row.categoryDeletedAt) {
-      throw new Error('所属分类也在回收站中，请先恢复该分类');
+      throw new BusinessError('所属分类也在回收站中，请先恢复该分类');
     }
 
     await tx
@@ -169,7 +170,7 @@ export async function restoreCategory(id: string): Promise<number> {
       .where(eq(categories.id, id))
       .limit(1);
     const stamp = rows[0]?.deletedAt;
-    if (!stamp) throw new Error('分类不在回收站中');
+    if (!stamp) throw new BusinessError('分类不在回收站中');
 
     const batch = await tx
       .select({ id: bookmarks.id, deletedTagIds: bookmarks.deletedTagIds })

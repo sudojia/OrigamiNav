@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
-import { errorMessage } from '@/db/client';
 import {
   getCategoryByName,
   getOrCreateCategoryByName,
 } from '@/db/queries/categories';
 import { extJson, extPreflight, verifyExtToken } from '@/lib/ext-api';
+import { userMessage } from '@/lib/errors';
 import { revalidateSite } from '@/lib/revalidate';
 import { LIMITS } from '@/lib/validation';
 
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     return extJson(
-      { ok: false, message: `创建失败：${errorMessage(error)}` },
+      { ok: false, message: userMessage(error, '创建失败，请重试') },
       { status: 500 },
     );
   }

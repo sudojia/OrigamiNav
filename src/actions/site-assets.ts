@@ -6,7 +6,7 @@ import {
   putSiteAsset,
   SITE_ASSET_KEYS,
 } from '@/db/queries/assets';
-import { errorMessage } from '@/db/client';
+import { userMessage } from '@/lib/errors';
 import {
   deleteSetting,
   getSiteSettings,
@@ -72,7 +72,7 @@ export async function uploadFaviconAction(
       [SETTING_KEYS.faviconVersion]: updatedAt,
     });
   } catch (error) {
-    return { ok: false, message: `上传失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '上传失败，请重试') };
   }
 
   revalidateSite();
@@ -92,7 +92,7 @@ export async function removeFaviconAction(): Promise<ActionState> {
       [SETTING_KEYS.faviconMode]: settings.faviconUrl ? 'url' : 'none',
     });
   } catch (error) {
-    return { ok: false, message: `移除失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '移除失败，请重试') };
   }
 
   revalidateSite();

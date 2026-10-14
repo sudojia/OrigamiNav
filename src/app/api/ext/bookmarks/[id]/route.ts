@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-import { errorMessage } from '@/db/client';
 import {
   deleteBookmark,
   getBookmarkById,
@@ -9,6 +8,7 @@ import {
 import { getCategoryById } from '@/db/queries/categories';
 import { resolveTagIds } from '@/db/queries/tags';
 import { extJson, extPreflight, verifyExtToken } from '@/lib/ext-api';
+import { userMessage } from '@/lib/errors';
 import { revalidateSite } from '@/lib/revalidate';
 import { LIMITS, tagNameSchema } from '@/lib/validation';
 
@@ -86,7 +86,7 @@ export async function PATCH(
     });
   } catch (error) {
     return extJson(
-      { ok: false, message: `保存失败：${errorMessage(error)}` },
+      { ok: false, message: userMessage(error, '保存失败，请重试') },
       { status: 500 },
     );
   }
@@ -117,7 +117,7 @@ export async function DELETE(
     await deleteBookmark(id);
   } catch (error) {
     return extJson(
-      { ok: false, message: `删除失败：${errorMessage(error)}` },
+      { ok: false, message: userMessage(error, '删除失败，请重试') },
       { status: 500 },
     );
   }

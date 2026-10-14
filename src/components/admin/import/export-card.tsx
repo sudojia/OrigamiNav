@@ -20,7 +20,7 @@ export function ExportCard({
         </span>
         <div>
           <h2 className="text-sm font-medium">导出备份</h2>
-          <p className="text-xs text-muted-foreground">随时带走全部内容</p>
+          <p className="text-xs text-muted-foreground">带走全部书签内容</p>
         </div>
       </div>
 
@@ -52,7 +52,7 @@ export function ExportCard({
             href="/api/export"
             Icon={FileJson}
             title="JSON 备份"
-            hint="完整数据，可在另一台实例还原"
+            hint="分类、书签、标签与点击统计；不含站点设置与已上传图标"
           />
           <ExportTile
             href="/api/export?format=html"

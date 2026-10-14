@@ -1,7 +1,7 @@
 'use server';
 
 import { guardAction as guard } from '@/lib/action-guard';
-import { errorMessage } from '@/db/client';
+import { userMessage } from '@/lib/errors';
 import { getSiteSettings } from '@/db/queries/settings';
 import {
   purgeAllTrash,
@@ -29,7 +29,7 @@ export async function restoreBookmarkAction(id: string): Promise<ActionState> {
   try {
     await restoreBookmark(id);
   } catch (error) {
-    return { ok: false, message: errorMessage(error) };
+    return { ok: false, message: userMessage(error, '恢复失败，请重试') };
   }
 
   revalidateSite();
@@ -51,7 +51,7 @@ export async function restoreCategoryAction(id: string): Promise<ActionState> {
         : '分类已恢复',
     };
   } catch (error) {
-    return { ok: false, message: errorMessage(error) };
+    return { ok: false, message: userMessage(error, '恢复失败，请重试') };
   }
 }
 
@@ -63,7 +63,7 @@ export async function purgeBookmarkAction(id: string): Promise<ActionState> {
   try {
     await purgeBookmark(id);
   } catch (error) {
-    return { ok: false, message: `删除失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '删除失败，请重试') };
   }
 
   return { ok: true, message: '书签已彻底删除' };
@@ -77,7 +77,7 @@ export async function purgeCategoryAction(id: string): Promise<ActionState> {
   try {
     await purgeCategory(id);
   } catch (error) {
-    return { ok: false, message: `删除失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '删除失败，请重试') };
   }
 
   return { ok: true, message: '分类已彻底删除' };
@@ -98,7 +98,7 @@ export async function purgeExpiredTrashAction(): Promise<ActionState> {
       message: removed ? `已清理 ${removed} 项过期内容` : '没有需要清理的内容',
     };
   } catch (error) {
-    return { ok: false, message: `清理失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '清理失败，请重试') };
   }
 }
 
@@ -113,6 +113,6 @@ export async function emptyTrashAction(): Promise<ActionState> {
       message: removed ? `已清空回收站，彻底删除 ${removed} 项` : '回收站已经是空的',
     };
   } catch (error) {
-    return { ok: false, message: `清空失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '清空失败，请重试') };
   }
 }

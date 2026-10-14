@@ -26,7 +26,7 @@ const FAVICON_MODE_OPTIONS: Array<{
 }> = [
   { value: 'none', label: '默认图标', hint: '使用内置的折纸图标' },
   { value: 'url', label: '图片链接', hint: '外链一个 .ico / .png' },
-  { value: 'upload', label: '上传图片', hint: '存到本站，随站点一起备份' },
+  { value: 'upload', label: '上传图片', hint: '存到本站数据库' },
 ];
 
 const ICON_SERVICE_OPTIONS: Array<{

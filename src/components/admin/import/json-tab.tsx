@@ -37,7 +37,7 @@ export function JsonTab({
         Icon={FileJson}
         hue="bg-chart-5/10 text-chart-5"
         title="从 JSON 备份恢复"
-        description="仅接受本应用导出的 JSON 格式。"
+        description="仅接受本应用导出的 JSON 格式，恢复分类、书签与标签。"
       />
 
       <div className="space-y-5 px-5 py-5">

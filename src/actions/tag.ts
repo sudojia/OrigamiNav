@@ -1,7 +1,7 @@
 'use server';
 
 import { guardAction as guard } from '@/lib/action-guard';
-import { errorMessage } from '@/db/client';
+import { userMessage } from '@/lib/errors';
 import {
   createTag,
   deleteTag,
@@ -43,7 +43,7 @@ export async function createTagAction(
     }
     await createTag(parsed.data);
   } catch (error) {
-    return { ok: false, message: `创建失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '创建失败，请重试') };
   }
 
   revalidateSite();
@@ -80,7 +80,7 @@ export async function renameTagAction(
       return { ok: false, message: '标签不存在或已被删除' };
     }
   } catch (error) {
-    return { ok: false, message: `重命名失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '重命名失败，请重试') };
   }
 
   revalidateSite();
@@ -94,7 +94,7 @@ export async function deleteTagAction(id: string): Promise<ActionState> {
   try {
     await deleteTag(id);
   } catch (error) {
-    return { ok: false, message: `删除失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '删除失败，请重试') };
   }
 
   revalidateSite();
@@ -115,7 +115,7 @@ export async function deleteTagsAction(ids: string[]): Promise<ActionState> {
   try {
     removed = await deleteTags(unique);
   } catch (error) {
-    return { ok: false, message: `删除失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '删除失败，请重试') };
   }
 
   revalidateSite();
@@ -146,7 +146,7 @@ export async function mergeTagsAction(input: {
   try {
     result = await mergeTags(targetId, sources);
   } catch (error) {
-    return { ok: false, message: `合并失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '合并失败，请重试') };
   }
 
   if (result.removed === 0) {
@@ -188,7 +188,7 @@ export async function deleteUnusedTagsAction(): Promise<ActionState> {
   try {
     removed = await deleteUnusedTags();
   } catch (error) {
-    return { ok: false, message: `清理失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '清理失败，请重试') };
   }
 
   revalidateSite();

@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import { guardAction, guardAction as guard } from '@/lib/action-guard';
 import { fetchUrlMetas, type FetchMetaResult } from '@/lib/fetch-meta';
-import { errorMessage } from '@/db/client';
+import { BusinessError, userMessage } from '@/lib/errors';
 import {
   createBookmarksBulk,
   getExistingBookmarkUrls,
@@ -148,7 +148,7 @@ export async function previewUrlImportAction(input: {
       fetchEnabled: parsed.data.fetchMeta,
     };
   } catch (error) {
-    return { ok: false, message: `解析失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '解析失败，请检查文件内容') };
   }
 }
 
@@ -226,7 +226,7 @@ export async function confirmUrlImportAction(input: {
     revalidateSite();
     return { ok: true, created, skipped };
   } catch (error) {
-    return { ok: false, message: `导入失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '导入失败，请重试') };
   }
 }
 
@@ -396,7 +396,7 @@ export async function importMappedBookmarksAction(input: {
       categories: new Set(inputs.map((input) => input.categoryId)).size,
     };
   } catch (error) {
-    return { ok: false, message: `导入失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '导入失败，请重试') };
   }
 }
 
@@ -417,6 +417,8 @@ const jsonBookmarkSchema = z.object({
     .nullish()
     .refine((v) => !v || isValidHttpUrl(v), '图标地址无效'),
   sortOrder: z.number().int().optional(),
+  /** Absent in backups made before click counts were carried. */
+  clickCount: z.number().int().min(0).optional(),
   createdAt: z.string().optional(),
   tags: z
     .array(z.string().trim().min(1).max(LIMITS.tagName))
@@ -510,7 +512,7 @@ export async function importJsonAction(
           : `合并导入完成：新增 ${result.bookmarks} 条书签，涉及 ${result.categories} 个分类`,
     };
   } catch (error) {
-    return { ok: false, message: `导入失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '导入失败，请重试') };
   }
 }
 
@@ -540,7 +542,7 @@ async function mergeImport(
   for (const category of payloadCategories) {
     const row = resolvedCategories.get(category.name);
     if (!row) {
-      throw new Error(`分类「${category.name}」创建失败`);
+      throw new BusinessError(`分类「${category.name}」创建失败`);
     }
     touched.add(row.id);
 
@@ -557,6 +559,7 @@ async function mergeImport(
         tagIds: idsFor(bookmark.tags ?? [], tagMap),
         tagNames: bookmark.tags ?? [],
         createdAt: bookmark.createdAt,
+        clickCount: bookmark.clickCount,
       });
     }
   }

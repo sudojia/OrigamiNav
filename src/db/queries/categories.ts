@@ -3,6 +3,7 @@ import 'server-only';
 import { and, asc, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 import { cache } from 'react';
 
+import { BusinessError } from '@/lib/errors';
 import { newId, newRow, nowIso } from '@/lib/ids';
 import { slugifyUnique } from '@/lib/pinyin';
 
@@ -545,7 +546,7 @@ export async function renumberCategories(orderedIds: string[]): Promise<void> {
       existing.size !== orderedIds.length ||
       !orderedIds.every((id) => existing.has(id))
     ) {
-      throw new Error('分类列表已变化，请刷新后重试');
+      throw new BusinessError('分类列表已变化，请刷新后重试');
     }
     const stamp = nowIso();
     // One statement for the whole order instead of one UPDATE per row.

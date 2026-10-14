@@ -3,7 +3,7 @@
 import { z } from 'zod';
 
 import { guardAction as guard } from '@/lib/action-guard';
-import { errorMessage } from '@/db/client';
+import { userMessage } from '@/lib/errors';
 import {
   createCategory,
   deleteCategory,
@@ -101,7 +101,7 @@ export async function createCategoryAction(
       hidden: parsed.data.hidden,
     });
   } catch (error) {
-    return { ok: false, message: `创建失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '创建失败，请重试') };
   }
 
   revalidateSite();
@@ -132,7 +132,7 @@ export async function updateCategoryAction(
       hidden: parsed.data.hidden,
     });
   } catch (error) {
-    return { ok: false, message: `保存失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '保存失败，请重试') };
   }
 
   revalidateSite();
@@ -163,7 +163,7 @@ export async function deleteCategoryAction(id: string): Promise<ActionState> {
       await deleteCategory(id);
     }
   } catch (error) {
-    return { ok: false, message: `删除失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '删除失败，请重试') };
   }
 
   revalidateSite();
@@ -183,7 +183,7 @@ export async function reorderCategoriesAction(
   try {
     await renumberCategories(orderedIds);
   } catch (error) {
-    return { ok: false, message: errorMessage(error) };
+    return { ok: false, message: userMessage(error, '排序保存失败，请重试') };
   }
 
   revalidateSite();

@@ -2,7 +2,7 @@
 
 import { randomBytes } from 'node:crypto';
 
-import { errorMessage } from '@/db/client';
+import { userMessage } from '@/lib/errors';
 import { listVisibleCategorySlugs } from '@/db/queries/categories';
 import {
   deleteSecret,
@@ -84,7 +84,7 @@ export async function generateIndexNowKeyAction(): Promise<
   try {
     await setSettings({ [SETTING_KEYS.indexNowKey]: key });
   } catch (error) {
-    return { ok: false, message: `生成失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '生成失败，请重试') };
   }
   return { ok: true, message: 'IndexNow 密钥已生成', key };
 }
@@ -97,7 +97,7 @@ export async function clearBaiduPushTokenAction(): Promise<ActionState> {
   try {
     await deleteSecret(SECRET_KEYS.baiduPushToken);
   } catch (error) {
-    return { ok: false, message: `清除失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '清除失败，请重试') };
   }
   return { ok: true, message: '百度推送 token 已清除' };
 }

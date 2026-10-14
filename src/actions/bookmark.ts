@@ -3,7 +3,7 @@
 import { z } from 'zod';
 
 import { guardAction as guard } from '@/lib/action-guard';
-import { errorMessage } from '@/db/client';
+import { userMessage } from '@/lib/errors';
 import {
   createBookmark,
   deleteBookmark,
@@ -56,7 +56,7 @@ async function resolveTags(raw: string): Promise<
     const ids = await resolveTagIds(names);
     return { ok: true, ids, names };
   } catch (error) {
-    return { ok: false, message: `标签处理失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '标签处理失败，请重试') };
   }
 }
 
@@ -113,7 +113,7 @@ export async function createBookmarkAction(
       });
     }
   } catch (error) {
-    return { ok: false, message: `创建失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '创建失败，请重试') };
   }
 
   revalidateSite();
@@ -183,7 +183,7 @@ export async function updateBookmarkAction(
       });
     }
   } catch (error) {
-    return { ok: false, message: `保存失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '保存失败，请重试') };
   }
 
   revalidateSite();
@@ -203,7 +203,7 @@ export async function deleteBookmarkAction(id: string): Promise<ActionState> {
   try {
     await deleteBookmark(id);
   } catch (error) {
-    return { ok: false, message: `删除失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '删除失败，请重试') };
   }
 
   revalidateSite();
@@ -229,7 +229,7 @@ export async function reorderBookmarksAction(
   try {
     await renumberBookmarksInCategory(categoryId, orderedIds);
   } catch (error) {
-    return { ok: false, message: errorMessage(error) };
+    return { ok: false, message: userMessage(error, '排序保存失败，请重试') };
   }
 
   revalidateSite();
@@ -332,6 +332,6 @@ export async function bulkUpdateBookmarksAction(
     revalidateSite();
     return { ok: true, message: `已把 ${moved} 条书签移入回收站` };
   } catch (error) {
-    return { ok: false, message: `批量操作失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '批量操作失败，请重试') };
   }
 }

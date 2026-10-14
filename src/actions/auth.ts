@@ -14,7 +14,7 @@ import {
   SETTING_KEYS,
   setSettings,
 } from '@/db/queries/settings';
-import { errorMessage } from '@/db/client';
+import { userMessage } from '@/lib/errors';
 import {
   hashPassword,
   needsRehash,
@@ -182,9 +182,10 @@ export async function installAction(
   try {
     claimed = await claimInstallLock();
   } catch (error) {
+    // Unauthenticated path: the driver's own message names hosts and users.
     return {
       ok: false,
-      message: `无法连接数据库：${errorMessage(error)}`,
+      message: userMessage(error, '无法连接数据库，请检查 DATABASE_URL 与数据库状态'),
     };
   }
 
@@ -223,7 +224,7 @@ export async function installAction(
     if (!adminCreated) {
       await releaseInstallLock().catch(() => {});
     }
-    return { ok: false, message: `初始化失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '初始化失败，请重试') };
   }
 
   redirect('/admin?installed=1');
@@ -409,7 +410,7 @@ export async function changePasswordAction(
     session.tokenVersion = tokenVersion;
     await session.save();
   } catch (error) {
-    return { ok: false, message: `修改失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '修改失败，请重试') };
   }
 
   return { ok: true, message: '密码已更新' };

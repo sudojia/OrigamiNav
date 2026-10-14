@@ -11,6 +11,7 @@ import {
   type SQL,
 } from 'drizzle-orm';
 
+import { BusinessError } from '@/lib/errors';
 import { newId, newRow, nowIso } from '@/lib/ids';
 import { buildSearchIndex } from '@/lib/search-index';
 import { termConditions } from '@/lib/search-query';
@@ -219,7 +220,7 @@ export async function updateBookmark(
       .where(and(eq(bookmarks.id, id), isNull(bookmarks.deletedAt)))
       .limit(1);
     const current = rows[0];
-    if (!current) throw new Error('书签不存在或已被删除');
+    if (!current) throw new BusinessError('书签不存在或已被删除');
 
     let sortOrder = current.sortOrder;
     if (current.categoryId !== input.categoryId) {
@@ -511,6 +512,8 @@ export type BulkBookmarkInput = {
   tagNames: string[];
   /** Preserve the original timestamp on imports; defaults to now. */
   createdAt?: string | null;
+  /** Preserved by a JSON restore; every other import starts from zero. */
+  clickCount?: number;
 };
 
 /** Inserts many bookmarks in one transaction, preserving input order. */
@@ -546,6 +549,7 @@ export async function createBookmarksBulk(
         description: input.description,
         iconUrl: input.iconUrl,
         sortOrder: order,
+        clickCount: input.clickCount ?? 0,
         searchIndex: buildSearchIndex({
           title: input.title,
           url: input.url,
@@ -590,7 +594,7 @@ export async function renumberBookmarksInCategory(
       existing.size !== orderedIds.length ||
       !orderedIds.every((id) => existing.has(id))
     ) {
-      throw new Error('书签列表已变化，请刷新后重试');
+      throw new BusinessError('书签列表已变化，请刷新后重试');
     }
     const stamp = nowIso();
     // One statement for the whole order instead of one UPDATE per row.

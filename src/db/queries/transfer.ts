@@ -10,7 +10,12 @@ import { db, safeQuery } from '../client';
 import { chunked } from '../chunk';
 import { bookmarks, bookmarksTags, categories, tags } from '../schema';
 
-/** Full JSON backup of categories, bookmarks, tags and links; live rows only. */
+/**
+ * JSON backup of the catalogue: categories, bookmarks, tags and their links,
+ * live rows only. Site settings, uploaded imagery, the recycle bin and admin
+ * accounts are outside it, so a restore rebuilds content but not the site's
+ * own configuration.
+ */
 
  type ExportBookmark = {
   title: string;
@@ -19,6 +24,8 @@ import { bookmarks, bookmarksTags, categories, tags } from '../schema';
   iconUrl: string | null;
   sortOrder: number;
   hidden?: boolean;
+  /** Carried so a migration keeps the click ranking. */
+  clickCount?: number;
   createdAt: string;
   tags: string[];
 };
@@ -71,6 +78,7 @@ export async function exportAllData(): Promise<ExportPayload | null> {
             iconUrl: bookmarks.iconUrl,
             sortOrder: bookmarks.sortOrder,
             hidden: bookmarks.hidden,
+            clickCount: bookmarks.clickCount,
             createdAt: bookmarks.createdAt,
           })
           .from(bookmarks)
@@ -99,6 +107,7 @@ export async function exportAllData(): Promise<ExportPayload | null> {
           iconUrl: row.iconUrl,
           sortOrder: row.sortOrder,
           hidden: row.hidden,
+          clickCount: row.clickCount,
           createdAt: row.createdAt,
           tags: tagNamesByBookmark.get(row.id) ?? [],
         };
@@ -218,6 +227,7 @@ export async function replaceAllData(
           iconUrl: bookmark.iconUrl ?? null,
           sortOrder: bookmark.sortOrder ?? bookmarkCount,
           hidden: bookmark.hidden ?? false,
+          clickCount: bookmark.clickCount ?? 0,
           searchIndex: buildSearchIndex({
             title: bookmark.title,
             url: bookmark.url,

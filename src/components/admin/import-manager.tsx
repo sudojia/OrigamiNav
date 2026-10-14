@@ -29,7 +29,7 @@ export function ImportManager({
       <PageHeader
         Icon={Import}
         title="导入 / 导出"
-        description="从浏览器书签文件、批量链接或 JSON 备份导入；导出完整备份用于迁移。"
+        description="从浏览器书签文件、批量链接或 JSON 备份导入；JSON 备份含全部分类、书签与标签。"
       />
 
       {categories.length === 0 ? (

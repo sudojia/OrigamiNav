@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 
 import { guardAction } from '@/lib/action-guard';
-import { errorMessage } from '@/db/client';
+import { userMessage } from '@/lib/errors';
 import { clearIconCache } from '@/db/queries/icons';
 import { invalidateExtTokenCache } from '@/lib/ext-api';
 import {
@@ -336,7 +336,7 @@ export async function updateSettingsAction(
       await setSecret(SECRET_KEYS.baiduPushToken, parsed.data.baiduPushToken);
     }
   } catch (error) {
-    return { ok: false, message: `保存失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '保存失败，请重试') };
   }
 
   revalidateSite();
@@ -364,7 +364,7 @@ export async function generateExtTokenAction(): Promise<ExtTokenState> {
     await setSecret(SECRET_KEYS.extToken, token);
     invalidateExtTokenCache();
   } catch (error) {
-    return { ok: false, message: `生成失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '生成失败，请重试') };
   }
   return { ok: true, message: '扩展令牌已生成，旧令牌已失效', token };
 }
@@ -378,7 +378,7 @@ export async function revokeExtTokenAction(): Promise<ExtTokenState> {
     await deleteSecret(SECRET_KEYS.extToken);
     invalidateExtTokenCache();
   } catch (error) {
-    return { ok: false, message: `吊销失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '吊销失败，请重试') };
   }
   return { ok: true, message: '扩展令牌已吊销', token: null };
 }
@@ -401,6 +401,6 @@ export async function clearIconCacheAction(): Promise<ActionState> {
       message: removed > 0 ? `已清空 ${removed} 条图标缓存` : '图标缓存本来就是空的',
     };
   } catch (error) {
-    return { ok: false, message: `清空失败：${errorMessage(error)}` };
+    return { ok: false, message: userMessage(error, '清空失败，请重试') };
   }
 }
